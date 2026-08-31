@@ -224,18 +224,25 @@ def migration_risk(scans: int, branches: int, settings: dict) -> RiskLabel:
     return RiskLabel(level=level, scans=scans, branches=branches)
 
 
-def score_rows(rows: list[ProjectRow], settings: dict) -> list[ProjectRow]:
+def score_rows(
+    rows: list[ProjectRow], settings: dict, now: datetime | None = None
+) -> list[ProjectRow]:
     """Apply the score and risk label to every row, then flag the top N.
 
     Separate from the fetching so retuning a weight re-ranks the stored snapshot
     without touching the tenant - the finding counts did not change.
+
+    `now` defaults to the wall clock and exists so a test can pin the instant it
+    measures ages against, the same way `baseline_age_days` already allows. A
+    staleness test written against the real clock passes on the day it is
+    written and starts failing the next.
     """
     stale_days = max(1, int(settings.get("rebase_stale_days", 0) or 1))
     for row in rows:
         row.score = opportunity_score(row.counts, settings)
         row.risk = migration_risk(row.scans, row.branches, settings)
         row.flagged = False
-        row.baseline_age_days = baseline_age_days(row.baseline_created_at)
+        row.baseline_age_days = baseline_age_days(row.baseline_created_at, now)
         row.rebase_recommended = (
             row.baseline_age_days is not None and row.baseline_age_days > stale_days
         )

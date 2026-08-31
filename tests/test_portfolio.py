@@ -147,6 +147,9 @@ from datetime import datetime, timedelta, timezone  # noqa: E402
 from analysis.portfolio import baseline_age_days, rebase_count  # noqa: E402
 from cx.portfolio import rows_from_json, rows_to_json  # noqa: E402
 
+#: A fixed instant. Every age below is measured from it and `score_rows` is
+#: told so, because a staleness assertion against the wall clock passes on
+#: the day it is written and fails the next.
 NOW = datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc)
 
 
@@ -182,7 +185,7 @@ def test_the_threshold_is_exclusive_at_the_boundary():
         baseline_created_at=(NOW - timedelta(days=91)).isoformat(),
         counts={"HIGH": 1},
     )
-    portfolio.score_rows([at, past], stale)
+    portfolio.score_rows([at, past], stale, now=NOW)
     assert at.rebase_recommended is False
     assert past.rebase_recommended is True
 
@@ -201,9 +204,9 @@ def test_raising_the_threshold_clears_the_flag_without_refetching():
         id="x", name="x", counts={"HIGH": 1},
         baseline_created_at=(NOW - timedelta(days=120)).isoformat(),
     )
-    portfolio.score_rows([row], dict(TUNING, rebase_stale_days=90))
+    portfolio.score_rows([row], dict(TUNING, rebase_stale_days=90), now=NOW)
     assert row.rebase_recommended is True
-    portfolio.score_rows([row], dict(TUNING, rebase_stale_days=365))
+    portfolio.score_rows([row], dict(TUNING, rebase_stale_days=365), now=NOW)
     assert row.rebase_recommended is False
 
 
@@ -213,7 +216,7 @@ def test_rebase_count_reports_only_flagged_rows():
                              baseline_created_at=(NOW - timedelta(days=days)).isoformat())
         for i, days in enumerate((10, 200, 400))
     ]
-    portfolio.score_rows(rows, dict(TUNING, rebase_stale_days=90))
+    portfolio.score_rows(rows, dict(TUNING, rebase_stale_days=90), now=NOW)
     assert rebase_count(rows) == 2
 
 
@@ -225,7 +228,7 @@ def test_sorting_by_baseline_puts_the_oldest_first_and_unknown_last():
         portfolio.ProjectRow(id="ancient", name="ancient", counts={"HIGH": 1},
                              baseline_created_at=(NOW - timedelta(days=500)).isoformat()),
     ]
-    portfolio.score_rows(rows, TUNING)
+    portfolio.score_rows(rows, TUNING, now=NOW)
     assert [row.id for row in portfolio.sort_rows(rows, "baseline")] == [
         "ancient", "recent", "unknown",
     ]
@@ -258,7 +261,7 @@ def test_the_age_label_reads_in_months_once_past_a_month():
         id="x", name="x", counts={"HIGH": 1},
         baseline_created_at=(NOW - timedelta(days=155)).isoformat(),
     )
-    portfolio.score_rows([row], TUNING)
+    portfolio.score_rows([row], TUNING, now=NOW)
     assert row.baseline_age_label == "5 mo ago"
 
 
