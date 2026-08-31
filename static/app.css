@@ -429,8 +429,79 @@ dialog li { margin-bottom: 0.35rem; }
 }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
 
+/* --- work in progress ----------------------------------------------------- */
+/* Several actions here are slow for honest reasons: building the portfolio
+   reads every project's scan history, and a re-onboarding preview walks the
+   tenant's integrations. Without a sign that something is happening, a page
+   that takes twelve seconds is indistinguishable from one that has hung. */
+
+.spinner {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+  /* Sized and coloured from the text it sits in, so one rule serves a primary
+     button, a secondary button and a link without knowing about any of them. */
+  vertical-align: -0.1em;
+  flex: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* A busy control keeps its label and its width - swapping the text would make
+   the page jump at the exact moment the user is waiting to see it settle. */
+button[aria-busy="true"], .button[aria-busy="true"] {
+  pointer-events: none;
+  opacity: 0.72;
+}
+button[aria-busy="true"] .spinner, .button[aria-busy="true"] .spinner {
+  margin-right: 0.5em;
+}
+
+/* Only shown once the action is under way: printed up front it is noise, and
+   after the click it is the answer to "is this stuck?". */
+.busy-note { display: none; }
+form[aria-busy="true"] .busy-note,
+.busy-note.is-visible { display: block; }
+
+/* Indeterminate top-of-page bar for a navigation that is taking a while. Only
+   revealed after a short delay, so a fast page never flashes it. */
+.page-progress {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent-soft);
+  z-index: 50;
+  overflow: hidden;
+}
+.page-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--accent);
+  animation: slide 1.1s var(--ease) infinite;
+}
+@keyframes slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  /* The animations above *are* the message, so they are not cancelled - they
+     are replaced with a pulse, which conveys "still working" without motion
+     across the screen. */
+  .spinner {
+    border-right-color: currentColor;
+    animation: pulse 1.4s var(--ease) infinite !important;
+  }
+  .page-progress::after {
+    width: 100%;
+    animation: pulse 1.4s var(--ease) infinite !important;
+  }
 }
 
 @media (max-width: 720px) {

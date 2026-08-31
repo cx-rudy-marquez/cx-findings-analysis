@@ -118,6 +118,11 @@
           <div class="dialog-actions">
             <button type="button" class="secondary" onclick="document.getElementById('confirm').close()">Cancel</button>
             <button type="submit">Create {{ project.name }}_FA and scan</button>
+          <p class="note busy-note">
+            Checking Checkmarx for an existing copy, then creating the project.
+            The scan itself runs in the background — you will be taken to a page
+            that follows it.
+          </p>
           </div>
         </form>
       </dialog>

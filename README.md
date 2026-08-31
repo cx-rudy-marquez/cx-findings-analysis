@@ -209,6 +209,24 @@ being stored, and thrown away at render time. `findingsAnalysis` is marked
 experiment; anything else differing is flagged, and turns the page's headline
 into a "needs review" warning.
 
+## Waiting
+
+Several actions here are slow for honest reasons: building the portfolio reads
+every project's baseline and scan history, and a re-onboarding preview walks the
+tenant's integrations. A page that takes twelve seconds is indistinguishable
+from one that has hung, so pressing anything gives back a spinner on the control
+itself and, after 150 ms, a thin indeterminate bar across the top of the page.
+The delay is deliberate — a fast action never flashes a bar.
+
+The slow ones add a line saying how long to expect, revealed only once the
+action is under way: printed up front it is noise, and after the click it is the
+answer to "is this stuck?".
+
+All of it is progressive enhancement. Every action is a real form or a real
+link, so with JavaScript off the page behaves exactly as it did before, minus
+the spinner. Reduced-motion preferences swap the spin and the sliding bar for a
+pulse rather than removing them — the animation *is* the message.
+
 ## Is this comparison trustworthy?
 
 Two checks answer that, because a number nobody can attribute is worse than no

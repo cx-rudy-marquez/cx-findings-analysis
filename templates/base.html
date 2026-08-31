@@ -38,6 +38,97 @@
 
     {% block content %}{% endblock %}
   </div>
+
+  {# Progress feedback for actions that are slow for honest reasons: building
+     the portfolio reads every project's scan history, and a re-onboarding
+     preview walks the tenant's integrations. Progressive enhancement - with no
+     JavaScript every form and link still works exactly as it did, just without
+     the spinner. Sits outside `scripts` so a page can add its own poller
+     without having to remember to re-include this. #}
+  <script>
+  (function () {
+    "use strict";
+    // Long enough that a fast page never flashes a bar, short enough that a
+    // slow one feels acknowledged rather than hung.
+    var REVEAL_AFTER_MS = 150;
+    var timer = null, bar = null;
+
+    function showBar() {
+      if (bar) return;
+      bar = document.createElement("div");
+      bar.className = "page-progress";
+      bar.setAttribute("role", "status");
+      bar.setAttribute("aria-label", "Loading");
+      document.body.appendChild(bar);
+    }
+
+    function begin() {
+      if (timer) return;
+      timer = setTimeout(showBar, REVEAL_AFTER_MS);
+    }
+
+    function reset() {
+      clearTimeout(timer);
+      timer = null;
+      if (bar) { bar.remove(); bar = null; }
+      document.querySelectorAll('[aria-busy="true"]').forEach(function (el) {
+        el.removeAttribute("aria-busy");
+        var spinner = el.querySelector(".spinner");
+        if (spinner) spinner.remove();
+      });
+      document.querySelectorAll(".busy-note.is-visible").forEach(function (note) {
+        note.classList.remove("is-visible");
+      });
+    }
+
+    function markBusy(el) {
+      if (!el || el.getAttribute("aria-busy") === "true") return;
+      el.setAttribute("aria-busy", "true");
+      var spinner = document.createElement("span");
+      spinner.className = "spinner";
+      spinner.setAttribute("aria-hidden", "true");
+      el.insertBefore(spinner, el.firstChild);
+      // A control inside a form reveals its note through the cascade. One
+      // outside a form names its note by id rather than by position, so moving
+      // the markup around cannot quietly stop it appearing.
+      var noteId = el.getAttribute("data-busy-note");
+      var note = noteId && document.getElementById(noteId);
+      if (note) note.classList.add("is-visible");
+    }
+
+    document.addEventListener("submit", function (event) {
+      var form = event.target;
+      if (!(form instanceof HTMLFormElement)) return;
+      if ((form.method || "get").toLowerCase() === "get") return;
+      // The submitter carries the spinner, so a page with two forms only
+      // lights up the control that was actually pressed.
+      markBusy(event.submitter || form.querySelector("button, input[type=submit]"));
+      // Marked on the form as well, so a `.busy-note` beside it can appear -
+      // "something is happening" and "this takes a while" are different
+      // messages and the slow actions need both.
+      form.setAttribute("aria-busy", "true");
+      begin();
+    });
+
+    document.addEventListener("click", function (event) {
+      // Anything the browser will handle itself, or that opens elsewhere.
+      if (event.defaultPrevented || event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      var link = event.target.closest && event.target.closest("a[href]");
+      if (!link || link.target || link.hasAttribute("download")) return;
+      var href = link.getAttribute("href") || "";
+      if (href.charAt(0) === "#" || link.origin !== window.location.origin) return;
+      if (link.classList.contains("button")) markBusy(link);
+      begin();
+    });
+
+    // Coming Back to a cached page would otherwise restore it mid-spin, with a
+    // disabled button and a bar for a navigation that finished long ago.
+    window.addEventListener("pageshow", reset);
+    window.addEventListener("pagehide", reset);
+  })();
+  </script>
+
   {% block scripts %}{% endblock %}
 </body>
 </html>

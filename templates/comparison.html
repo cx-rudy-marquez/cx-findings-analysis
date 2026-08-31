@@ -125,7 +125,12 @@
 
     {% if reonboard_enabled and parity %}
       <p class="no-print">
-        <a class="button" href="/runs/{{ run.id }}/reonboard">Preview re-onboarding</a>
+        <a class="button" href="/runs/{{ run.id }}/reonboard"
+           data-busy-note="reonboard-wait">Preview re-onboarding</a>
+      </p>
+      <p class="note busy-note" id="reonboard-wait">
+        Reading the tenant's integrations to work out exactly what would happen.
+        This can take a few seconds. Nothing is being changed.
       </p>
       <p class="note no-print">
         A dry run listing every API call and its target project id. Nothing is sent

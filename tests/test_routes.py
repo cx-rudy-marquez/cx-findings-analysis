@@ -1215,3 +1215,68 @@ def test_the_parameters_no_longer_compete_with_the_numbers(client):
     assert "Baseline scan" not in page
     # Still one line saying the comparison is sound.
     assert "Parameters match baseline" in page
+
+
+# --- progress feedback on slow actions ----------------------------------------
+
+
+def test_every_page_carries_the_progress_script(client):
+    """It lives in the layout, so a page cannot forget to include it."""
+    for path in ("/", "/runs", "/settings"):
+        assert "page-progress" in client.get(path).text
+
+
+def test_a_page_with_its_own_poller_still_gets_it(client):
+    """`{% block scripts %}` is overridden by the polling pages.
+
+    The progress script sits outside that block for exactly this reason - a
+    page that defines its own script must not silently lose it.
+    """
+    response = client.post(
+        "/runs", data={"project_id": WEBGOATNET, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    page = client.get(response.headers["location"]).text
+    assert "page-progress" in page
+
+
+def test_the_slow_actions_say_how_long_they_take(client):
+    """A spinner says "happening"; these say "and it will be a while"."""
+    client.post("/portfolio/refresh")
+    assert "around ten seconds" in client.get("/").text
+
+    page = client.get(completed_run(client)).text
+    assert "busy-note" in page
+    assert "can take a few seconds" in page
+
+
+def test_the_busy_notes_are_hidden_until_the_action_starts(client):
+    """Printed up front they are noise; after the click they answer "is it stuck?"."""
+    css = client.get("/static/app.css").text
+    assert ".busy-note { display: none; }" in css
+    assert ".busy-note.is-visible { display: block; }" in css
+
+
+def test_the_preview_link_names_its_note_rather_than_relying_on_position(client):
+    page = client.get(completed_run(client)).text
+    assert 'data-busy-note="reonboard-wait"' in page
+    assert 'id="reonboard-wait"' in page
+
+
+def test_the_spinner_respects_reduced_motion(client):
+    """The animation is the message, so it is replaced rather than cancelled."""
+    css = client.get("/static/app.css").text
+    reduced = css.split("prefers-reduced-motion", 1)[1]
+    assert ".spinner" in reduced
+    assert "pulse" in reduced
+
+
+def test_the_page_still_works_without_javascript(client):
+    """Progressive enhancement: nothing is wired through a click handler.
+
+    Every action is a real form or a real link, so the spinner is decoration on
+    top of a page that already worked.
+    """
+    page = client.get("/").text
+    assert '<form method="post" action="/portfolio/refresh"' in page
+    assert "onclick" not in page.split("<script>")[0]

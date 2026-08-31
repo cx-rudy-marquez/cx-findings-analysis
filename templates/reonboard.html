@@ -212,6 +212,11 @@
         {% else %}
         <button type="submit">Disconnect {{ plan.base_project_name }} and convert {{ plan.candidate_project_name }}</button>
         {% endif %}
+        <p class="note busy-note">
+          Re-reading the tenant and checking this plan still matches before
+          anything is sent. Do not reload — the next page follows the conversion
+          step by step.
+        </p>
       </form>
       <p class="note" style="margin-top:0.75rem">
         Confirming checks this plan against the tenant again before anything is
