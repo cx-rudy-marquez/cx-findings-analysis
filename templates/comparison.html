@@ -86,76 +86,18 @@
   </div>
 </section>
 
-{# ---- the decision this page exists to inform -----------------------------
-   Directly under the headline, because it is the point: the numbers above are
-   what re-onboarding buys, and this is the only place that says so. #}
-<section class="benefit">
-  <h3>
-    {%- if run.reonboard_status == "completed" %}Already re-onboarded
-    {%- else %}What re-onboarding gets you{% endif %}
-    <span class="badge badge-beta">Beta</span>
-  </h3>
-
-  {% if run.reonboard_status == "completed" %}
-    <p>
-      The repository now scans through <strong>{{ run.fa_project_name }}</strong>, so
-      every push is analysed with Findings Analysis on.
-      <strong>{{ run.source_project_name }}</strong> was kept as a manual project with
-      its full scan history.
-      {% if reonboard_enabled %}<a href="/runs/{{ run.id }}/reonboard">See what was done</a>.{% endif %}
-    </p>
-  {% else %}
-    <p>
-      Right now this saving is hypothetical: it was measured on a copy, and your pushes
-      still scan through <strong>{{ run.source_project_name }}</strong> with the
-      capability off. Re-onboarding moves the repository onto
-      <strong>{{ run.fa_project_name }}</strong> so every future scan is the one
-      measured above. The original is kept, with its full history — it is never deleted.
-    </p>
-
-    {% if baseline_new_share is not none %}
-    <p class="note">
-      <strong>Expect it on new findings, not the whole backlog again.</strong>
-      This run analysed a brand-new project, so every finding was in NEW state and
-      every one was eligible — the ceiling. Only <strong>{{ baseline_new_share }}%</strong>
-      of the original baseline was NEW, so once enabled there this is the scale of
-      reduction to expect on newly introduced findings each scan.
-    </p>
-    {% endif %}
-
-    {% if reonboard_enabled and parity %}
-      <p class="no-print">
-        <a class="button" href="/runs/{{ run.id }}/reonboard"
-           data-busy-note="reonboard-wait">Preview re-onboarding</a>
-      </p>
-      <p class="note busy-note" id="reonboard-wait">
-        Reading the tenant's integrations to work out exactly what would happen.
-        This can take a few seconds. Nothing is being changed.
-      </p>
-      <p class="note no-print">
-        A dry run listing every API call and its target project id. Nothing is sent
-        until you confirm it.
-      </p>
-    {% elif not reonboard_enabled %}
-      <p class="note">
-        Re-onboarding is switched off for this deployment. Set <code>REONBOARD=true</code>
-        to enable it.
-      </p>
-    {% endif %}
-  {% endif %}
-</section>
-
 {# ---- tabs ---------------------------------------------------------------
    Plain links carrying `?view=`, so a tab is bookmarkable and shareable and
-   the page works with no JavaScript at all. #}
-<nav class="tabs subtabs no-print" aria-label="Impact sections">
+   the page works with no JavaScript at all. Each one ends `#views`: switching
+   tab is a real navigation, and without the anchor the browser would drop the
+   reader back at the top of the page every time. #}
+<nav class="tabs subtabs no-print" id="views" aria-label="Impact sections">
   {% for name, label in views %}
     {% if name == "reonboard" and not reonboard_enabled %}
       <span class="tab tab-disabled"
-            title="Re-onboarding is disabled for this deployment. Set REONBOARD=true to enable it."
             aria-disabled="true">{{ label }} <span class="badge badge-beta">Beta</span></span>
     {% else %}
-      <a href="/runs/{{ run.id }}?view={{ name }}"
+      <a href="/runs/{{ run.id }}?view={{ name }}#views"
          class="tab{% if view == name %} tab-active{% endif %}"
          {% if view == name %}aria-current="page"{% endif %}>
         {{ label }}
@@ -225,6 +167,15 @@
     results, so anything arriving in the second scan came from a difference between the scans
     themselves, not from the feature.
   </p>
+  {% if baseline_new_share is not none %}
+  <p class="note">
+    <strong>Expect it on new findings, not the whole backlog again.</strong>
+    This run analysed a brand-new project, so every finding was in NEW state and
+    every one was eligible — the ceiling. Only <strong>{{ baseline_new_share }}%</strong>
+    of the original baseline was NEW, so once enabled there this is the scale of
+    reduction to expect on newly introduced findings each scan.
+  </p>
+  {% endif %}
 </section>
 {% endif %}
 
@@ -366,9 +317,9 @@
 {% endif %}
 
 {% if view == "reonboard" %}
-{# The pitch and the button live in the benefit panel at the top of the page,
-   where the numbers they refer to are. This tab is the mechanics: what the
-   flow actually does to the tenant, for someone deciding whether to run it. #}
+{# The mechanics and the action, together: what the flow does to the tenant,
+   then the button that starts the dry run. Reached only when the flag is on -
+   the tab is not a link otherwise - so nothing here re-checks it. #}
 <section class="no-print">
   <h3>How re-onboarding works <span class="badge badge-beta">Beta</span></h3>
 
@@ -407,6 +358,19 @@
   <p class="note">
     A project connected to no repository skips straight to the two renames and
     the rescan: there is nothing to disconnect and nothing to connect to.
+  </p>
+
+  <p class="no-print">
+    <a class="button" href="/runs/{{ run.id }}/reonboard"
+       data-busy-note="reonboard-wait">Preview re-onboarding</a>
+  </p>
+  <p class="note busy-note" id="reonboard-wait">
+    Reading the tenant's integrations to work out exactly what would happen.
+    This can take a few seconds. Nothing is being changed.
+  </p>
+  <p class="note no-print">
+    A dry run listing every API call and its target project id. Nothing is sent
+    until you confirm it.
   </p>
   {% endif %}
 </section>

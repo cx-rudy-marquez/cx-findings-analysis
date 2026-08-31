@@ -391,7 +391,7 @@ def test_the_comparison_offers_a_re_onboarding_preview(client):
     page = client.get(completed_run(client), params={"view": "reonboard"}).text
     assert "Preview re-onboarding" in page
     assert "Beta" in page
-    assert "never deleted" in page
+    assert "Nothing is deleted" in page
 
 
 def test_the_preview_is_reachable_and_writes_nothing(client):
@@ -721,7 +721,7 @@ def test_a_re_onboarded_project_is_offered_no_further_actions(client):
     page = client.get(run_url, params={"view": "reonboard"}).text
     assert "Preview re-onboarding" not in page
     assert "Run another comparison" not in client.get(run_url).text
-    assert "See what was done" in page
+    assert "See exactly what was done" in page
 
 
 # --- the post-conversion rescan, end to end through the app ------------------
@@ -1025,7 +1025,7 @@ def test_a_tab_is_a_shareable_url(client):
     """No JavaScript involved: the tab is a link and the URL is the state."""
     run_url = completed_run(client)
     page = client.get(run_url).text
-    assert f'href="{run_url}?view=cwe"' in page
+    assert f'href="{run_url}?view=cwe#views"' in page
     # And following it lands on that tab, marked active.
     assert 'aria-current="page"' in client.get(run_url, params={"view": "cwe"}).text
 
@@ -1102,6 +1102,9 @@ def test_the_reonboard_tab_is_disabled_when_the_flag_is_off(client_no_beta):
     page = client_no_beta.get(completed_run(client_no_beta)).text
     assert 'class="tab tab-disabled"' in page
     assert "Beta" in page
+    # Greyed out, and silent about why - a tooltip naming the env var would put
+    # the deployment's configuration in front of someone who cannot change it.
+    assert "title=" not in page.split("tab-disabled", 1)[1].split(">", 1)[0]
     # Disabled means no link to it anywhere on the page.
     assert "?view=reonboard" not in page
     assert "Preview re-onboarding" not in page
@@ -1142,14 +1145,19 @@ def test_the_flag_changes_nothing_else_on_the_page(client_no_beta):
     ).text
 
 
-# --- the page leads with the re-onboarding case -------------------------------
+# --- the page leads with the numbers, not with a banner -----------------------
+
+VIEWS = ("severity", "query", "cwe", "audit", "reonboard")
 
 
-def test_the_benefit_case_is_above_the_tabs(client):
-    """The point of the page: what the numbers are for, before any tab."""
-    page = client.get(completed_run(client)).text
-    assert "What re-onboarding gets you" in page
-    assert page.index("What re-onboarding gets you") < page.index('class="tabs subtabs')
+def test_the_benefit_banner_is_gone(client):
+    """It repeated on every view and pushed the tabs below the fold."""
+    run_url = completed_run(client)
+    for view in VIEWS:
+        page = client.get(run_url, params={"view": view}).text
+        assert 'class="benefit"' not in page
+        assert "What re-onboarding gets you" not in page
+        assert "this saving is hypothetical" not in page
 
 
 def test_the_headline_frames_the_decision_not_the_experiment(client):
@@ -1157,54 +1165,77 @@ def test_the_headline_frames_the_decision_not_the_experiment(client):
     assert "What you gain by re-onboarding" in page
 
 
-def test_the_saving_is_named_as_hypothetical_until_re_onboarded(client):
-    """The measurement was taken on a copy nothing pushes to.
-
-    Presenting it as a saving already banked would be the one dishonest way to
-    read this page.
-    """
+def test_the_hero_is_followed_straight_by_the_tabs(client):
+    """Nothing between the figures and the tab bar any more."""
     page = client.get(completed_run(client)).text
-    assert "this saving is hypothetical" in page
-    assert "still scan through" in page
+    assert page.index("findings left to triage") < page.index('class="tabs subtabs')
 
 
-def test_the_ongoing_rate_sits_with_the_case_not_in_the_severity_tab(client):
-    page = client.get(completed_run(client)).text
+def test_the_ongoing_rate_qualifies_the_severity_table(client):
+    """It explains those counts, so it belongs with them and nowhere else."""
+    run_url = completed_run(client)
+    page = client.get(run_url, params={"view": "severity"}).text
     assert "15.6" in page                       # NEW share of the original baseline
     assert "not the whole backlog again" in page
-    assert page.index("15.6") < page.index('class="tabs subtabs')
+    assert "not the whole backlog again" not in client.get(
+        run_url, params={"view": "cwe"}
+    ).text
 
 
-def test_the_preview_action_is_reachable_without_opening_a_tab(client):
-    page = client.get(completed_run(client)).text
-    assert "Preview re-onboarding" in page
-    assert page.index("Preview re-onboarding") < page.index('class="tabs subtabs')
+def test_the_preview_action_lives_in_the_reonboard_tab(client):
+    """With the pitch gone the button sits with the mechanics it describes."""
+    run_url = completed_run(client)
+    assert "Preview re-onboarding" not in client.get(run_url).text
+    assert "Preview re-onboarding" in client.get(
+        run_url, params={"view": "reonboard"}
+    ).text
 
 
-def test_the_case_offers_no_action_when_the_flag_is_off(client_no_beta):
-    page = client_no_beta.get(completed_run(client_no_beta)).text
-    assert "What re-onboarding gets you" in page      # the case still stands
-    assert "Preview re-onboarding" not in page        # but there is no button
-    assert "REONBOARD=true" in page                   # and it says why
+def test_no_view_tells_the_reader_how_to_enable_re_onboarding(client, client_no_beta):
+    """How the deployment is configured is not this reader's business.
+
+    They cannot act on it, and naming the variable invites asking someone to
+    switch on a flow that disconnects a live project.
+    """
+    for c in (client, client_no_beta):
+        run_url = completed_run(c)
+        for view in VIEWS:
+            assert "REONBOARD" not in c.get(run_url, params={"view": view}).text
 
 
-def test_a_re_onboarded_run_states_the_saving_is_now_real(client):
+def test_a_re_onboarded_run_says_so_in_its_tab(client):
     import routes.deps as deps
 
     run_url = completed_run(client)
     deps.get_store().update_run(run_url.rsplit("/", 1)[-1], reonboard_status="completed")
-    page = client.get(run_url).text
+    page = client.get(run_url, params={"view": "reonboard"}).text
     assert "Already re-onboarded" in page
-    assert "every push is analysed with Findings Analysis on" in page
-    assert "this saving is hypothetical" not in page
+    assert "See exactly what was done" in page
+    assert "Preview re-onboarding" not in page
 
 
-def test_the_reonboard_tab_explains_the_mechanics_without_repeating_the_pitch(client):
-    """One call to action on the page, at the top, next to the numbers."""
+def test_the_reonboard_tab_carries_the_mechanics_and_one_action(client):
     page = client.get(completed_run(client), params={"view": "reonboard"}).text
     assert "How re-onboarding works" in page
     assert "_FA_BACKUP" in page                       # the actual steps
-    assert page.count("Preview re-onboarding") == 1   # the one in the case above
+    assert page.count("Preview re-onboarding") == 1
+
+
+# --- switching tabs keeps the reader's place ----------------------------------
+
+
+def test_every_tab_link_anchors_the_tab_bar(client):
+    """A tab is a full navigation, so without this the browser jumps to the top."""
+    page = client.get(completed_run(client)).text
+    assert 'class="tabs subtabs no-print" id="views"' in page
+    for view in VIEWS:
+        assert f"?view={view}#views" in page
+
+
+def test_the_anchored_nav_is_not_flush_against_the_viewport(client):
+    css = client.get("/static/app.css").text
+    subtabs = css.split(".subtabs {", 1)[1].split("}", 1)[0]
+    assert "scroll-margin-top" in subtabs
 
 
 def test_the_parameters_no_longer_compete_with_the_numbers(client):
@@ -1245,7 +1276,7 @@ def test_the_slow_actions_say_how_long_they_take(client):
     client.post("/portfolio/refresh")
     assert "around ten seconds" in client.get("/").text
 
-    page = client.get(completed_run(client)).text
+    page = client.get(completed_run(client), params={"view": "reonboard"}).text
     assert "busy-note" in page
     assert "can take a few seconds" in page
 
@@ -1258,7 +1289,7 @@ def test_the_busy_notes_are_hidden_until_the_action_starts(client):
 
 
 def test_the_preview_link_names_its_note_rather_than_relying_on_position(client):
-    page = client.get(completed_run(client)).text
+    page = client.get(completed_run(client), params={"view": "reonboard"}).text
     assert 'data-busy-note="reonboard-wait"' in page
     assert 'id="reonboard-wait"' in page
 

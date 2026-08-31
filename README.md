@@ -198,16 +198,22 @@ CWE, Audit trail and Re-onboarding - each a plain `?view=` link rather than
 client-side state. The URL is the state, so a tab is bookmarkable and
 shareable, and the page works with no JavaScript at all. An unrecognised
 `?view=` falls back to By severity rather than erroring: a stale link should
-show the page, not refuse it.
+show the page, not refuse it. Every tab link ends `#views`, because switching
+tab is a real navigation and without the anchor the browser would drop the
+reader back at the top of the page each time.
 
-Above them sits **Scan parameters**: the branch and the three identifiers the
-comparison ran with, and all seven SAST settings with the base project's value
-beside the copy's. That panel replaced a banner which asserted "7 of 7
-parameters as expected" while showing none of them - the values were already
-being stored, and thrown away at render time. `findingsAnalysis` is marked
-*expected to differ* rather than as a fault, because that difference is the
-experiment; anything else differing is flagged, and turns the page's headline
-into a "needs review" warning.
+Nothing sits between the figures and the tabs. An earlier version argued the
+re-onboarding case there, in a panel that repeated on all five views and pushed
+the tabs below the fold; the argument now lives in the Re-onboarding tab
+alongside the mechanics and the button that starts the dry run.
+
+**Scan parameters** is in the Audit trail tab: all seven SAST settings with the
+base project's value beside the copy's. It is provenance - what someone checks
+when they doubt the headline, not something they read on the way to it - so the
+page carries only a badge saying the comparison is attributable.
+`findingsAnalysis` is marked *expected to differ* rather than as a fault,
+because that difference is the experiment; anything else differing is flagged,
+and turns the page's headline into a "needs review" warning.
 
 ## Waiting
 
@@ -259,7 +265,10 @@ not trigger scans on projects it did not create.
 false the Re-onboarding tab renders greyed out with its Beta badge, and all
 three routes behind it answer 404 - greying a tab out is presentation, and a
 bookmarked URL, a stale tab or a replayed form reaches the route without ever
-seeing it. Nothing else on the page changes. (`reonboard=true` is accepted too,
+seeing it. Nothing else on the page changes. The tab says nothing about how to
+switch it on - not in its label and not in a tooltip: the reader cannot act on
+it, and naming the variable invites asking someone else to enable a flow that
+disconnects a live project. (`reonboard=true` is accepted too,
 for an `.env` written by hand; the upper-case name is checked first because a
 lower-case environment variable is unreliable on Windows.)
 

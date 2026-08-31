@@ -619,7 +619,13 @@ tr.stale-baseline .baseline-age { color: var(--warn); font-weight: 600; }
 /* Same .tab elements as the masthead nav; only the offset differs, since these
    sit mid-page rather than tucked under the header. */
 
-.subtabs { margin: 2.5rem 0 1.75rem; }
+/* `scroll-margin-top` because every tab link ends `#views`: the browser scrolls
+   the nav to the top of the viewport, and flush against the edge it reads as a
+   page that lost its header rather than one that kept your place. */
+.subtabs {
+  margin: 2.5rem 0 1.75rem;
+  scroll-margin-top: 1.25rem;
+}
 
 /* Disabled rather than hidden: someone looking for re-onboarding should find
    out it exists and is switched off, not be left wondering where it went. */
@@ -630,20 +636,7 @@ tr.stale-baseline .baseline-age { color: var(--warn); font-weight: 600; }
 }
 .tab-disabled:hover { background: none; color: var(--ink-faint); }
 
-/* --- the re-onboarding case ---------------------------------------------- */
-/* Sits directly under the headline figures, because it is what they are for. */
-
-.benefit {
-  border-left: 3px solid var(--accent);
-  background: var(--accent-soft);
-  padding: 1.1rem 1.4rem;
-  border-radius: 0 4px 4px 0;
-  max-width: var(--measure);
-  margin-bottom: 2.5rem;
-}
-.benefit h3 { margin: 0 0 0.6rem; }
-.benefit p { margin: 0 0 0.75rem; }
-.benefit p:last-child { margin-bottom: 0; }
+/* --- how re-onboarding works --------------------------------------------- */
 
 .how-steps {
   max-width: var(--measure);
