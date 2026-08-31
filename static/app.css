@@ -559,27 +559,31 @@ tr.stale-baseline .baseline-age { color: var(--warn); font-weight: 600; }
 }
 .tab-disabled:hover { background: none; color: var(--ink-faint); }
 
-/* --- scan parameters ----------------------------------------------------- */
+/* --- the re-onboarding case ---------------------------------------------- */
+/* Sits directly under the headline figures, because it is what they are for. */
 
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-.panel-head h3 { margin-bottom: 0; }
-
-.scan-facts {
-  display: grid;
-  grid-template-columns: minmax(9rem, auto) 1fr;
-  gap: 0.4rem 1.25rem;
+.benefit {
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  padding: 1.1rem 1.4rem;
+  border-radius: 0 4px 4px 0;
   max-width: var(--measure);
-  margin: 1rem 0 1.5rem;
-  font-size: 0.86rem;
+  margin-bottom: 2.5rem;
 }
-.scan-facts dt { color: var(--ink-soft); }
-.scan-facts dd { margin: 0; }
-.scan-facts code { font-family: var(--mono); font-size: 0.95em; }
+.benefit h3 { margin: 0 0 0.6rem; }
+.benefit p { margin: 0 0 0.75rem; }
+.benefit p:last-child { margin-bottom: 0; }
+
+.how-steps {
+  max-width: var(--measure);
+  padding-left: 1.2rem;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+.how-steps code { font-family: var(--mono); font-size: 0.9em; }
+
+/* --- scan parameters (audit trail) --------------------------------------- */
 
 .badge-parity-ok { color: var(--chrome); background: var(--chrome-soft); }
 .badge-parity-off { color: var(--danger); background: var(--warn-soft); }

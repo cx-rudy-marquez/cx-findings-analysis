@@ -326,16 +326,20 @@ def test_the_comparison_reports_parameter_parity(client):
     run = get_store().get_run(run_url.rsplit("/", 1)[-1])
 
     page = client.get(run_url).text
-    assert "Matches baseline 7/7" in page
+    # One badge on the headline: the settings behind it are provenance and do
+    # not compete with the numbers for space.
+    assert "Parameters match baseline" in page
     assert "needs review" not in page
-    # And the panel shows the parameters it is vouching for, rather than only
-    # asserting that they matched.
-    assert "Scan parameters" in page
+    assert "<td>Fast scan mode</td>" not in page
+
+    # The evidence is a click away, in the audit trail.
+    audit = client.get(run_url, params={"view": "audit"}).text
+    assert "Scan parameters" in audit
     for label in ("Fast scan mode", "Folder/file filter", "Incremental",
                   "LLM-based scanning", "Preset", "Recommended exclusions",
                   "Findings Analysis"):
-        assert f"<td>{label}</td>" in page
-    assert run["baseline_scan_id"] in page
+        assert f"<td>{label}</td>" in audit
+    assert run["baseline_scan_id"] in audit
 
 
 def test_a_parameter_mismatch_marks_the_comparison_unreliable(client):
@@ -353,15 +357,19 @@ def test_a_parameter_mismatch_marks_the_comparison_unreliable(client):
     run_url = response.headers["location"]
     assert wait_for_run(client, run_url)["status"] == "completed"
 
+    # The warning stays on the headline - it is a verdict on every number there.
     page = client.get(run_url).text
     assert "This comparison needs review" in page
-    assert "Fast scan mode" in page
-    assert "Folder/file filter" in page
-    # The panel lists every parameter now, so the check is no longer that the
-    # expected difference is absent - it is that it is not reported as a fault.
-    assert "<td>Findings Analysis</td>" in page
-    assert "expected to differ" in page
-    assert page.count("parity-flag-off") == 2      # the two real mismatches
+    assert "Parameters match baseline" not in page
+
+    audit = client.get(run_url, params={"view": "audit"}).text
+    assert "Fast scan mode" in audit
+    assert "Folder/file filter" in audit
+    # Every parameter is listed, so the check is not that the expected
+    # difference is absent - it is that it is not reported as a fault.
+    assert "<td>Findings Analysis</td>" in audit
+    assert "expected to differ" in audit
+    assert audit.count("parity-flag-off") == 2     # the two real mismatches
 
 
 # --- Phase 3c: [BETA] re-onboarding -----------------------------------------
@@ -1052,9 +1060,9 @@ def test_the_old_parity_banner_is_gone(client):
     assert "Parameter parity:" not in page
 
 
-def test_the_parameters_panel_names_both_projects_and_both_values(client):
-    """The banner claimed the scans matched; the panel shows the evidence."""
-    page = client.get(completed_run(client)).text
+def test_the_parameters_table_names_both_projects_and_both_values(client):
+    """The badge claims the scans matched; the audit trail shows the evidence."""
+    page = client.get(completed_run(client), params={"view": "audit"}).text
     assert "Scan parameters" in page
     assert "rmarquez/WebGoatNet" in page                      # base column head
     assert "rmarquez/WebGoatNet_FA" in page                   # copy column head
@@ -1064,12 +1072,12 @@ def test_the_parameters_panel_names_both_projects_and_both_values(client):
     assert "expected to differ" in page
 
 
-def test_the_panel_carries_the_scan_identifiers(client):
+def test_the_audit_trail_carries_the_scan_identifiers(client):
     import routes.deps as deps
 
     run_url = completed_run(client)
     run = deps.get_store().get_run(run_url.rsplit("/", 1)[-1])
-    page = client.get(run_url).text
+    page = client.get(run_url, params={"view": "audit"}).text
     for value in (run["baseline_scan_id"], run["fa_scan_id"], run["fa_project_id"]):
         assert value in page
     assert run["baseline_branch"] in page
@@ -1081,9 +1089,10 @@ def test_a_run_without_a_parity_report_renders_no_panel(client):
 
     run_url = completed_run(client)
     deps.get_store().update_run(run_url.rsplit("/", 1)[-1], parity_report=None)
-    page = client.get(run_url)
-    assert page.status_code == 200
-    assert "Scan parameters" not in page.text
+    assert client.get(run_url).status_code == 200
+    assert "Scan parameters" not in client.get(
+        run_url, params={"view": "audit"}
+    ).text
 
 
 # -- the REONBOARD flag --------------------------------------------------------
@@ -1124,7 +1133,85 @@ def test_linking_to_the_disabled_tab_falls_back_to_severity(client_no_beta):
 
 def test_the_flag_changes_nothing_else_on_the_page(client_no_beta):
     """A disabled beta must not cost the operator the measurement."""
-    page = client_no_beta.get(completed_run(client_no_beta)).text
-    assert "Scan parameters" in page
-    assert "Matches baseline 7/7" in page
+    run_url = completed_run(client_no_beta)
+    page = client_no_beta.get(run_url).text
+    assert "Parameters match baseline" in page
     assert "38.5" in page
+    assert "Scan parameters" in client_no_beta.get(
+        run_url, params={"view": "audit"}
+    ).text
+
+
+# --- the page leads with the re-onboarding case -------------------------------
+
+
+def test_the_benefit_case_is_above_the_tabs(client):
+    """The point of the page: what the numbers are for, before any tab."""
+    page = client.get(completed_run(client)).text
+    assert "What re-onboarding gets you" in page
+    assert page.index("What re-onboarding gets you") < page.index('class="tabs subtabs')
+
+
+def test_the_headline_frames_the_decision_not_the_experiment(client):
+    page = client.get(completed_run(client)).text
+    assert "What you gain by re-onboarding" in page
+
+
+def test_the_saving_is_named_as_hypothetical_until_re_onboarded(client):
+    """The measurement was taken on a copy nothing pushes to.
+
+    Presenting it as a saving already banked would be the one dishonest way to
+    read this page.
+    """
+    page = client.get(completed_run(client)).text
+    assert "this saving is hypothetical" in page
+    assert "still scan through" in page
+
+
+def test_the_ongoing_rate_sits_with_the_case_not_in_the_severity_tab(client):
+    page = client.get(completed_run(client)).text
+    assert "15.6" in page                       # NEW share of the original baseline
+    assert "not the whole backlog again" in page
+    assert page.index("15.6") < page.index('class="tabs subtabs')
+
+
+def test_the_preview_action_is_reachable_without_opening_a_tab(client):
+    page = client.get(completed_run(client)).text
+    assert "Preview re-onboarding" in page
+    assert page.index("Preview re-onboarding") < page.index('class="tabs subtabs')
+
+
+def test_the_case_offers_no_action_when_the_flag_is_off(client_no_beta):
+    page = client_no_beta.get(completed_run(client_no_beta)).text
+    assert "What re-onboarding gets you" in page      # the case still stands
+    assert "Preview re-onboarding" not in page        # but there is no button
+    assert "REONBOARD=true" in page                   # and it says why
+
+
+def test_a_re_onboarded_run_states_the_saving_is_now_real(client):
+    import routes.deps as deps
+
+    run_url = completed_run(client)
+    deps.get_store().update_run(run_url.rsplit("/", 1)[-1], reonboard_status="completed")
+    page = client.get(run_url).text
+    assert "Already re-onboarded" in page
+    assert "every push is analysed with Findings Analysis on" in page
+    assert "this saving is hypothetical" not in page
+
+
+def test_the_reonboard_tab_explains_the_mechanics_without_repeating_the_pitch(client):
+    """One call to action on the page, at the top, next to the numbers."""
+    page = client.get(completed_run(client), params={"view": "reonboard"}).text
+    assert "How re-onboarding works" in page
+    assert "_FA_BACKUP" in page                       # the actual steps
+    assert page.count("Preview re-onboarding") == 1   # the one in the case above
+
+
+def test_the_parameters_no_longer_compete_with_the_numbers(client):
+    """The panel was the complaint: it pushed the result down the page."""
+    page = client.get(completed_run(client)).text
+    for label in ("Fast scan mode", "Recommended exclusions", "LLM-based scanning"):
+        assert label not in page
+    assert "Baseline scan" not in page
+    # Still one line saying the comparison is sound.
+    assert "Parameters match baseline" in page

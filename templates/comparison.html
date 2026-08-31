@@ -11,8 +11,15 @@
     {% else %}
       <span class="badge badge-live">Live result</span>
     {% endif %}
+    {# One badge, not a panel. It says the number below is attributable; the
+       settings behind it are provenance and live in the audit trail. #}
+    {% if parity and parity.reliable %}
+      &nbsp;·&nbsp;
+      <span class="badge badge-parity-ok"
+            title="All {{ parity.total }} SAST settings are as expected, so the change below is attributable to Findings Analysis. The full comparison is in the audit trail.">Parameters match baseline</span>
+    {% endif %}
   </p>
-  <h2>What Findings Analysis removed</h2>
+  <h2>What you gain by re-onboarding</h2>
 
   {% for warning in warnings %}
     <div class="callout callout-warn">{{ warning }}</div>
@@ -26,8 +33,9 @@
       <p class="note">
         The two projects do not scan the same way. A preset change or a different
         exclusion filter moves the finding count on its own, so the difference below is
-        not attributable to Findings Analysis alone. Reconcile the settings marked
-        below and run the comparison again.
+        not attributable to Findings Analysis alone. The
+        <a href="/runs/{{ run.id }}?view=audit">audit trail</a> lists which settings
+        differ; reconcile them and run the comparison again.
       </p>
     </div>
   {% endif %}
@@ -78,69 +86,59 @@
   </div>
 </section>
 
-{# ---- what the two scans actually ran with -------------------------------
-   Absent on runs recorded before the parity check existed: an empty panel
-   would be worse than none, so nothing renders. #}
-{% if parity %}
-<section>
-  <div class="panel-head">
-    <h3>Scan parameters</h3>
-    {% if parity.reliable %}
-      <span class="badge badge-parity-ok">Matches baseline {{ parity.as_expected }}/{{ parity.total }}</span>
-    {% else %}
-      <span class="badge badge-parity-off">{{ parity.as_expected }} of {{ parity.total }} as expected</span>
+{# ---- the decision this page exists to inform -----------------------------
+   Directly under the headline, because it is the point: the numbers above are
+   what re-onboarding buys, and this is the only place that says so. #}
+<section class="benefit">
+  <h3>
+    {%- if run.reonboard_status == "completed" %}Already re-onboarded
+    {%- else %}What re-onboarding gets you{% endif %}
+    <span class="badge badge-beta">Beta</span>
+  </h3>
+
+  {% if run.reonboard_status == "completed" %}
+    <p>
+      The repository now scans through <strong>{{ run.fa_project_name }}</strong>, so
+      every push is analysed with Findings Analysis on.
+      <strong>{{ run.source_project_name }}</strong> was kept as a manual project with
+      its full scan history.
+      {% if reonboard_enabled %}<a href="/runs/{{ run.id }}/reonboard">See what was done</a>.{% endif %}
+    </p>
+  {% else %}
+    <p>
+      Right now this saving is hypothetical: it was measured on a copy, and your pushes
+      still scan through <strong>{{ run.source_project_name }}</strong> with the
+      capability off. Re-onboarding moves the repository onto
+      <strong>{{ run.fa_project_name }}</strong> so every future scan is the one
+      measured above. The original is kept, with its full history — it is never deleted.
+    </p>
+
+    {% if baseline_new_share is not none %}
+    <p class="note">
+      <strong>Expect it on new findings, not the whole backlog again.</strong>
+      This run analysed a brand-new project, so every finding was in NEW state and
+      every one was eligible — the ceiling. Only <strong>{{ baseline_new_share }}%</strong>
+      of the original baseline was NEW, so once enabled there this is the scale of
+      reduction to expect on newly introduced findings each scan.
+    </p>
     {% endif %}
-  </div>
 
-  <dl class="scan-facts">
-    <dt>Branch</dt><dd><code>{{ run.baseline_branch or "—" }}</code></dd>
-    <dt>Baseline scan</dt><dd><code>{{ run.baseline_scan_id or "—" }}</code></dd>
-    <dt>Comparison scan</dt><dd><code>{{ run.fa_scan_id or "—" }}</code></dd>
-    <dt>Copy project</dt><dd><code>{{ run.fa_project_id or "—" }}</code></dd>
-  </dl>
-
-  <div class="scroll-x">
-    <table class="parity-table">
-      <thead>
-        <tr>
-          <th>SAST setting</th>
-          <th>{{ run.source_project_name }}</th>
-          <th>{{ run.fa_project_name }}</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for field in parity.fields %}
-        <tr {% if not field.matches and not field.expected_to_differ %}class="parity-mismatch"{% endif %}>
-          <td>{{ field.label }}</td>
-          <td><code>{{ field.base }}</code></td>
-          <td><code>{{ field.candidate }}</code></td>
-          <td class="note">
-            {%- if field.expected_to_differ %}
-              <span class="parity-flag parity-flag-expected">expected to differ</span>
-            {%- elif not field.matches %}
-              <span class="parity-flag parity-flag-off">differs</span>
-            {%- endif %}
-            {# The note is suppressed on the one row where it only restates the
-               flag - the expected difference actually differing. It still shows
-               for everything that needs explaining: a preset the scan pinned
-               from the base, or the expected difference *failing* to appear. #}
-            {% if field.note and not (field.expected_to_differ and not field.matches) %}
-              {{ field.note }}
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  <p class="note">
-    Findings Analysis is the one setting that is <em>meant</em> to differ — that difference
-    is what this run tests. Everything else matching is what makes the change above
-    attributable to the capability rather than to how the two scans were configured.
-  </p>
+    {% if reonboard_enabled and parity %}
+      <p class="no-print">
+        <a class="button" href="/runs/{{ run.id }}/reonboard">Preview re-onboarding</a>
+      </p>
+      <p class="note no-print">
+        A dry run listing every API call and its target project id. Nothing is sent
+        until you confirm it.
+      </p>
+    {% elif not reonboard_enabled %}
+      <p class="note">
+        Re-onboarding is switched off for this deployment. Set <code>REONBOARD=true</code>
+        to enable it.
+      </p>
+    {% endif %}
+  {% endif %}
 </section>
-{% endif %}
 
 {# ---- tabs ---------------------------------------------------------------
    Plain links carrying `?view=`, so a tab is bookmarkable and shareable and
@@ -222,17 +220,6 @@
     results, so anything arriving in the second scan came from a difference between the scans
     themselves, not from the feature.
   </p>
-
-  {% if baseline_new_share is not none %}
-  <h3 style="margin-top:2.5rem">What to expect on an established project</h3>
-  <div class="callout">
-    This run re-onboarded the code as a brand-new project, so every finding was in
-    <strong>NEW</strong> state and every finding was analysed. That is the ceiling.
-    In the original project's baseline, only <strong>{{ baseline_new_share }}%</strong> of
-    findings were NEW — so once enabled there, expect this scale of reduction on newly
-    introduced findings each scan, not a one-time drop of the whole backlog repeated forever.
-  </div>
-  {% endif %}
 </section>
 {% endif %}
 
@@ -315,40 +302,106 @@
     </li>
     {% endfor %}
   </ul>
+
+  {# The settings both scans ran with. Provenance, so it lives here rather than
+     above the numbers it underwrites - it is what someone checks when they
+     doubt the headline, not something they read on the way to it. Absent on
+     runs recorded before the parity check existed. #}
+  {% if parity %}
+  <h3 style="margin-top:2.5rem">
+    Scan parameters
+    {% if parity.reliable %}
+      <span class="badge badge-parity-ok">{{ parity.as_expected }}/{{ parity.total }} as expected</span>
+    {% else %}
+      <span class="badge badge-parity-off">{{ parity.as_expected }} of {{ parity.total }} as expected</span>
+    {% endif %}
+  </h3>
+  <p class="note">
+    Findings Analysis is the one setting <em>meant</em> to differ. Everything else
+    matching is what makes the change attributable to the capability rather than to
+    how the two scans were configured.
+  </p>
+  <div class="scroll-x">
+    <table class="parity-table">
+      <thead>
+        <tr>
+          <th>SAST setting</th>
+          <th>{{ run.source_project_name }}</th>
+          <th>{{ run.fa_project_name }}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for field in parity.fields %}
+        <tr {% if not field.matches and not field.expected_to_differ %}class="parity-mismatch"{% endif %}>
+          <td>{{ field.label }}</td>
+          <td><code>{{ field.base }}</code></td>
+          <td><code>{{ field.candidate }}</code></td>
+          <td class="note">
+            {%- if field.expected_to_differ %}
+              <span class="parity-flag parity-flag-expected">expected to differ</span>
+            {%- elif not field.matches %}
+              <span class="parity-flag parity-flag-off">differs</span>
+            {%- endif %}
+            {# Suppressed on the one row where it only restates the flag - the
+               expected difference actually differing. Still shown for a preset
+               the scan pinned from the base, or the expected difference
+               failing to appear. #}
+            {% if field.note and not (field.expected_to_differ and not field.matches) %}
+              {{ field.note }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
 </section>
 {% endif %}
 
 {% if view == "reonboard" %}
+{# The pitch and the button live in the benefit panel at the top of the page,
+   where the numbers they refer to are. This tab is the mechanics: what the
+   flow actually does to the tenant, for someone deciding whether to run it. #}
 <section class="no-print">
-  <h3>Re-onboarding <span class="badge badge-beta">Beta</span></h3>
+  <h3>How re-onboarding works <span class="badge badge-beta">Beta</span></h3>
+
   {% if run.reonboard_status == "completed" %}
-  {# This project's cycle is finished: the repository has moved to the copy, and
-     the original is now an `_FA_BACKUP` the project list no longer offers. The
-     preview button would point somewhere already converted, so the only thing
-     left to offer is the record. #}
   <p class="note">
     <strong>Already re-onboarded.</strong> The repository now scans through
     <strong>{{ run.fa_project_name }}</strong>, and
     <strong>{{ run.source_project_name }}</strong> was kept as a manual project
     with its full scan history.
-    <a href="/runs/{{ run.id }}/reonboard">See what was done</a>.
+    <a href="/runs/{{ run.id }}/reonboard">See exactly what was done</a>.
   </p>
-  {% elif parity %}
-  <p class="note">
-    Move the repository from <strong>{{ run.source_project_name }}</strong> onto
-    <strong>{{ run.fa_project_name }}</strong>, so the project carrying Findings
-    Analysis is the one your pushes scan. The original is disconnected and kept
-    as a manual project with its full scan history — it is never deleted.
-  </p>
-  <p><a class="button secondary" href="/runs/{{ run.id }}/reonboard">Preview re-onboarding</a></p>
-  <p class="note">
-    Opens a dry run listing every API call and its target project id.
-    Nothing is sent until you confirm it.
-  </p>
-  {% else %}
+  {% elif not parity %}
   <p class="note">
     This run has no parameter parity check, so its comparison has not been shown
     to be attributable. Re-run the comparison before re-onboarding.
+  </p>
+  {% else %}
+  <p class="note">
+    The repository moves from <strong>{{ run.source_project_name }}</strong> onto
+    <strong>{{ run.fa_project_name }}</strong>, so the project carrying Findings
+    Analysis is the one your pushes scan. Nothing is deleted, and nothing is sent
+    until you confirm a dry run that names every call and its target project id.
+  </p>
+  <ol class="how-steps">
+    <li>The original is disconnected from its repository. It keeps every scan it
+      has ever run and becomes a manual project.</li>
+    <li>It is renamed to <code>{{ run.source_project_name }}_FA_BACKUP</code>,
+      freeing its name.</li>
+    <li>The copy is renamed to <code>{{ run.source_project_name }}</code>, taking
+      that name over.</li>
+    <li>The copy is connected to the repository in the original's place.</li>
+    <li>Every scanner the tenant is licensed for is switched on, and one fresh
+      full scan is queued. Best effort — a failure here is a warning, not a
+      failed re-onboarding.</li>
+  </ol>
+  <p class="note">
+    A project connected to no repository skips straight to the two renames and
+    the rescan: there is nothing to disconnect and nothing to connect to.
   </p>
   {% endif %}
 </section>
