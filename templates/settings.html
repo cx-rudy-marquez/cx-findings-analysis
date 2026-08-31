@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Settings — Findings Analysis Impact{% endblock %}
+{% block content %}
+
+<section>
+  <p class="eyebrow">Configuration</p>
+  <h2>Scoring &amp; risk settings{% if tuning_customised %}
+    <span class="badge badge-sample">Customised</span>{% endif %}</h2>
+  <p class="note">
+    Every value here is a judgement call, not a fact about the platform, which is why
+    none of them is hardcoded. Re-scoring uses the stored snapshot — changing a weight
+    does not re-read the tenant, because the finding counts have not changed.
+  </p>
+
+  <div class="panel">
+    <form method="post" action="/portfolio/settings" class="tuning-form">
+      <fieldset>
+        <legend>Opportunity weights</legend>
+        <label>High <input type="number" name="weight_high" min="0" max="100" value="{{ tuning.weight_high }}"></label>
+        <label>Medium <input type="number" name="weight_medium" min="0" max="100" value="{{ tuning.weight_medium }}"></label>
+        <label>Low <input type="number" name="weight_low" min="0" max="100" value="{{ tuning.weight_low }}"></label>
+      </fieldset>
+      <fieldset>
+        <legend>Low risk — needs both</legend>
+        <label>Scans ≤ <input type="number" name="risk_low_max_scans" min="0" max="9999" value="{{ tuning.risk_low_max_scans }}"></label>
+        <label>Branches ≤ <input type="number" name="risk_low_max_branches" min="0" max="9999" value="{{ tuning.risk_low_max_branches }}"></label>
+      </fieldset>
+      <fieldset>
+        <legend>High risk — either is enough</legend>
+        <label>Scans ≥ <input type="number" name="risk_high_min_scans" min="1" max="9999" value="{{ tuning.risk_high_min_scans }}"></label>
+        <label>Branches ≥ <input type="number" name="risk_high_min_branches" min="1" max="9999" value="{{ tuning.risk_high_min_branches }}"></label>
+      </fieldset>
+      <fieldset>
+        <legend>Flagging</legend>
+        <label>Flag top <input type="number" name="flag_top_n" min="0" max="99" value="{{ tuning.flag_top_n }}"> by score</label>
+      </fieldset>
+      <fieldset>
+        <legend>Re-base recommendation</legend>
+        <label>Baseline older than
+          <input type="number" name="rebase_stale_days" min="1" max="3650" value="{{ tuning.rebase_stale_days }}"> days
+        </label>
+      </fieldset>
+      <div class="tuning-actions">
+        <button type="submit">Save</button>
+      </div>
+    </form>
+
+    <form method="post" action="/portfolio/settings/reset">
+      <button type="submit" class="secondary">Reset to defaults</button>
+    </form>
+  </div>
+
+  <h3>What each setting decides</h3>
+  <dl class="settings-notes">
+    <dt>Opportunity weights</dt>
+    <dd>
+      How much a High, Medium or Low finding counts toward the score. Critical is absent
+      rather than weighted zero: the platform never evaluates Critical results, so those
+      findings are not eligible at all — a zero would read as a choice someone could
+      argue with.
+    </dd>
+    <dt>Migration risk thresholds</dt>
+    <dd>
+      Re-onboarding a project means creating a new one, and a new project starts with no
+      scan history. Low risk needs <em>both</em> counts small; High needs only
+      <em>one</em> large — a project with 40 scans on one branch and one with 3 scans
+      across 9 branches have each accumulated history worth keeping.
+    </dd>
+    <dt>Re-base recommendation</dt>
+    <dd>
+      Past this age, a project's baseline is flagged on the Projects list. A comparison
+      anchored to an old baseline measures the intervening months of code alongside the
+      capability, so the number stops being attributable. The default is 90 days.
+    </dd>
+  </dl>
+</section>
+
+{% endblock %}

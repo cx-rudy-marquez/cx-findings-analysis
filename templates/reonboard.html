@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% block title %}Re-onboard — {{ run.source_project_name }}{% endblock %}
+{% block content %}
+
+<section>
+  <p class="eyebrow">
+    <a href="/runs/{{ run.id }}">Back to the comparison</a>
+    &nbsp;·&nbsp;<span class="badge badge-beta">Beta</span>
+  </p>
+  <h2>Re-onboard {{ run.source_project_name }}</h2>
+
+  {% if error %}
+    <div class="callout callout-danger">{{ error }}</div>
+  {% endif %}
+
+  {# ---- terminal states ------------------------------------------------- #}
+  {% if reonboard_status == "completed" %}
+    <div class="callout">
+      <p><strong>Re-onboarding complete.</strong></p>
+      {% if result.manual %}
+      <p class="note">
+        <strong>{{ result.candidate_project_name }}</strong> now holds the live
+        name{% if result.candidate_original_name %} (renamed from
+        <code>{{ result.candidate_original_name }}</code>){% endif %}.
+        <strong>{{ result.base_project_name }}</strong>{% if result.base_original_name %}
+        — formerly <code>{{ result.base_original_name }}</code> —{% endif %}
+        remains in the tenant with its full scan history: it was renamed, never
+        deleted. Neither project is connected to a repository, so nothing was
+        disconnected and nothing was connected.
+      </p>
+      {% else %}
+      <p class="note">
+        <strong>{{ result.candidate_project_name }}</strong> is now connected to
+        <code>{{ result.repo_url }}</code>{% if result.candidate_original_name %}
+        (renamed from <code>{{ result.candidate_original_name }}</code>){% endif %}.
+        <strong>{{ result.base_project_name }}</strong>{% if result.base_original_name %}
+        — formerly <code>{{ result.base_original_name }}</code> —{% endif %}
+        remains in the tenant as a manual project with its full scan history: it
+        was disconnected and renamed, never deleted.
+      </p>
+      {% endif %}
+    </div>
+  {% elif reonboard_status == "failed" %}
+    <div class="callout callout-danger">
+      <p><strong>Re-onboarding failed.</strong></p>
+      <pre class="failure">{{ result.error }}</pre>
+      {% if result.applied_steps %}
+      <p class="note">
+        The tenant is part-way through this change. The list above is exactly
+        what landed; nothing else was attempted.
+      </p>
+      {% endif %}
+      {% if not settled %}
+      <p class="note">
+        No repository is involved here, so nothing is disconnected and no pushes
+        are going anywhere unexpected — the outstanding work is a rename, and the
+        preview below reads both names from the tenant and picks up from
+        whichever one did not land.
+      </p>
+      {% else %}
+      <p class="note">
+        Nothing was retried automatically. Retrying a half-applied SCM change
+        blind is how a repository ends up connected twice or to nothing at all.
+      </p>
+      {% endif %}
+    </div>
+  {% elif reonboard_status == "running" %}
+    <div class="callout">
+      <p><strong class="pulse">{{ result.phase if result else "starting" }}</strong></p>
+      <p class="note">
+        {% if plan and plan.manual %}The renames are running.{% else %}The
+        disconnect and the conversion are running.{% endif %}
+        This page refreshes itself; leaving it does not stop them.
+      </p>
+    </div>
+  {% endif %}
+
+  {# ---- the dry run ------------------------------------------------------ #}
+  {% if plan %}
+    {# Blockers and warnings describe a decision. Once the re-onboarding has
+       run there is no decision left, and re-stating them against a tenant it
+       has already changed would contradict the outcome above. #}
+    {% if not settled %}
+      {% if not plan.executable %}
+        <div class="callout callout-danger">
+          <p><strong>This re-onboarding cannot proceed.</strong></p>
+          <ul>
+            {% for blocker in plan.blockers %}<li>{{ blocker.message }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      {% for warning in plan.warnings %}
+        <div class="callout callout-warn">{{ warning }}</div>
+      {% endfor %}
+    {% endif %}
+
+    {% if plan.manual %}
+      <div class="callout">
+        <p><strong>This project is connected to no repository.</strong></p>
+        <p class="note">
+          It has no repository-manager record, no SCM origin, no integration
+          lists it, and nothing in its recent scan history was cloned from a
+          repository — so there is nothing to disconnect and nothing to connect
+          the copy to. The two projects swap names instead, and the copy is
+          rescanned from the source Checkmarx already holds. Its scanners stay
+          exactly as the Findings Analysis comparison configured them.
+        </p>
+      </div>
+    {% endif %}
+
+    <h3>{% if settled %}What was done{% else %}What would happen{% endif %}</h3>
+    <div class="data-panel">
+      <div class="scroll-x">
+        <table class="portfolio">
+          <thead>
+            <tr><th></th><th>Call</th><th>Target</th><th>Effect</th></tr>
+          </thead>
+          <tbody>
+            {% for step in plan.steps %}
+            <tr>
+              <td class="num">{{ step.order }}</td>
+              <td><code>{{ step.method }} {{ step.path }}</code></td>
+              <td class="project-name">{{ step.target }}</td>
+              <td class="note">{{ step.effect }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <h3>Configuration {% if settled %}applied{% else %}being applied{% endif %}</h3>
+    <dl class="plan-facts">
+      {% if not plan.manual %}
+      <dt>Repository</dt><dd><code>{{ plan.repo_url }}</code></dd>
+      <dt>SCM</dt><dd>{{ plan.scm_type }}{% if plan.scm_id %} (integration {{ plan.scm_id }}){% endif %}</dd>
+      <dt>Organisation</dt><dd><code>{{ plan.org_identity }}</code></dd>
+      <dt>Protected branches</dt>
+      <dd>{% for pattern in plan.protected_branches %}<code>{{ pattern }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</dd>
+      {% endif %}
+      <dt>Base project renamed to</dt><dd><code>{{ plan.base_backup_name }}</code></dd>
+      <dt>Copy renamed to</dt><dd><code>{{ plan.candidate_final_name }}</code></dd>
+      {% if plan.manual %}
+      <dt>Repository</dt><dd>None — this project is scanned from uploaded source.</dd>
+      <dt>Scanners</dt>
+      <dd>
+        Unchanged. There is no repository settings document to change, so the
+        rescan runs whatever the Findings Analysis comparison ran.
+      </dd>
+      {% else %}
+      <dt>Scanners</dt><dd>{{ plan.engines|join(", ") }}</dd>
+      <dt>Licensed for</dt>
+      <dd>
+        {% if plan.licensed_scanners %}{{ plan.licensed_scanners|join(", ") }}
+        {%- else %}not readable from this tenant's token{% endif %}
+      </dd>
+      <dt>Webhook</dt><dd>{{ "enabled" if plan.webhook_enabled else "disabled" }}</dd>
+      <dt>Scan on conversion</dt>
+      <dd>{{ "yes" if plan.auto_scan else "no — the copy has already been scanned" }}</dd>
+      <dt>Credential</dt>
+      <dd>
+        None is sent. The conversion borrows the integration's existing
+        credential, which is why it is only offered while
+        {{ plan.connected_project_count }} projects are connected through it.
+      </dd>
+      {% endif %}
+    </dl>
+
+    {% if not plan.manual %}
+    <details class="payload no-print">
+      <summary>The exact request body</summary>
+      <pre>{{ plan.payload|tojson(indent=2) }}</pre>
+    </details>
+    {% endif %}
+
+    {% if plan.executable and not settled %}
+      <div class="callout callout-danger">
+        {% if plan.manual %}
+        <p><strong>This renames two live projects.</strong></p>
+        <p class="note">
+          <strong>{{ plan.base_project_name }}</strong> will be renamed to
+          <code>{{ plan.base_backup_name }}</code> and
+          <strong>{{ plan.candidate_project_name }}</strong> will take over the
+          name <code>{{ plan.candidate_final_name }}</code>. Both keep every scan
+          they have ever run and <strong>neither is deleted</strong>. Nothing is
+          disconnected and nothing is connected, so anything referring to these
+          projects by name — a CLI script, a pipeline — will follow the name to
+          whichever project now holds it. Reversing this means renaming both
+          back.
+        </p>
+        {% else %}
+        <p><strong>This changes live SCM state.</strong></p>
+        <p class="note">
+          <strong>{{ plan.base_project_name }}</strong> will stop receiving scans
+          from <code>{{ plan.repo_url }}</code>, be renamed to
+          <code>{{ plan.base_backup_name }}</code>, and have its webhook removed.
+          It keeps every scan it has ever run and <strong>is not deleted</strong>.
+          <strong>{{ plan.candidate_project_name }}</strong> then takes over the
+          name <code>{{ plan.candidate_final_name }}</code>.
+          There is no undo button here: reversing this means renaming both
+          projects back and reconnecting the original in Checkmarx One.
+        </p>
+        {% endif %}
+      </div>
+
+      <form method="post" action="/runs/{{ run.id }}/reonboard" class="no-print">
+        <input type="hidden" name="confirm" value="yes">
+        <input type="hidden" name="plan_digest" value="{{ plan.digest }}">
+        {% if plan.manual %}
+        <button type="submit">Rename {{ plan.candidate_project_name }} to {{ plan.candidate_final_name }}</button>
+        {% else %}
+        <button type="submit">Disconnect {{ plan.base_project_name }} and convert {{ plan.candidate_project_name }}</button>
+        {% endif %}
+      </form>
+      <p class="note" style="margin-top:0.75rem">
+        Confirming checks this plan against the tenant again before anything is
+        sent. If the tenant has changed in the meantime, the run is refused
+        rather than applying something you did not review.
+      </p>
+    {% endif %}
+  {% endif %}
+
+  {% if result and result.rescan %}
+  {# Reported separately from the re-onboarding above, because it is separate:
+     a warning here does not mean the repository failed to move. #}
+  <h3>{% if result.rescan.manual %}Rescan{% else %}Post-conversion scan{% endif %}</h3>
+  <div class="callout{% if result.rescan.warnings %} callout-warn{% endif %}">
+    {% if result.rescan.scan_id %}
+      <p>
+        A fresh {% if not result.rescan.manual %}full {% endif %}scan was queued on
+        <strong>{{ result.candidate_project_name }}</strong> —
+        scan <code>{{ result.rescan.scan_id }}</code>. It is not waited on here.
+        {%- if result.rescan.manual %} It re-runs the source Checkmarx already
+        holds; nothing was downloaded or uploaded.{% endif %}
+      </p>
+    {% elif not result.rescan.warnings %}
+      <p>A fresh scan was queued. The platform returned no scan id.</p>
+    {% endif %}
+
+    {% if result.rescan.settings_request %}
+      <p class="note">
+        Scanners enabled:
+        {% for field, value in result.rescan.settings_request.items() if value %}
+          <code>{{ field }}</code>{% if not loop.last %}, {% endif %}
+        {% else %}none — everything licensed was already on{% endfor %}.
+        Incremental Scan and SCA auto pull requests were turned off.
+      </p>
+    {% endif %}
+
+    {% for warning in result.rescan.warnings %}
+      <p class="note"><strong>Warning:</strong> {{ warning }}</p>
+    {% endfor %}
+    {% if result.rescan.warnings %}
+      <p class="note">
+        The re-onboarding itself succeeded —
+        {% if result.rescan.manual %}both renames landed{% else %}the repository
+        moved{% endif %}. This step is a best-effort follow-up, and it is
+        reported here rather than retried so you can finish it in Checkmarx One.
+      </p>
+    {% endif %}
+  </div>
+
+  <details class="payload no-print">
+    <summary>
+      {%- if result.rescan.manual %}The rescan request and what the platform
+      returned{% else %}The scanner settings request and what the platform
+      returned{% endif -%}
+    </summary>
+    <pre>{{ result.rescan|tojson(indent=2) }}</pre>
+  </details>
+  {% endif %}
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+{% if reonboard_status == "running" %}
+<script>
+  // Same shape as the run poller: ask the server, never guess client-side.
+  const poll = () => {
+    fetch("/runs/{{ run.id }}/reonboard/status")
+      .then((response) => response.json())
+      .then((payload) => {
+        if (payload.done) { window.location.reload(); return; }
+        setTimeout(poll, {{ poll_seconds }} * 1000);
+      })
+      .catch(() => setTimeout(poll, {{ poll_seconds }} * 1000));
+  };
+  setTimeout(poll, {{ poll_seconds }} * 1000);
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+{% block title %}Impact — {{ run.source_project_name }}{% endblock %}
+{% block content %}
+
+<section>
+  <p class="eyebrow">
+    {{ run.source_project_name }} → {{ run.fa_project_name }}
+    &nbsp;·&nbsp;
+    {% if run.is_synthetic %}
+      <span class="badge badge-sample">Sample data — not measured</span>
+    {% else %}
+      <span class="badge badge-live">Live result</span>
+    {% endif %}
+  </p>
+  <h2>What Findings Analysis removed</h2>
+
+  {% for warning in warnings %}
+    <div class="callout callout-warn">{{ warning }}</div>
+  {% endfor %}
+
+  {# Parameter parity. Absent on runs recorded before this check existed - an
+     empty verdict would be worse than none, so nothing renders. #}
+  {% if parity %}
+    {% if parity.reliable %}
+      <p class="parity-ok note">
+        <strong>Parameter parity: {{ parity.summary }}.</strong>
+        Findings Analysis is enabled on the copy and off on the base — the one difference
+        this run is testing. Nothing else about how the two scans ran differs, so the
+        change below is attributable to the capability.
+      </p>
+    {% else %}
+      <div class="callout callout-danger">
+        <p><strong>This comparison needs review — {{ parity.summary }}.</strong></p>
+        <p class="note">
+          The two projects do not scan the same way. A preset change or a different
+          exclusion filter moves the finding count on its own, so the difference below is
+          not attributable to Findings Analysis alone. Reconcile these settings and run
+          the comparison again.
+        </p>
+        <div class="scroll-x">
+          <table class="parity-table">
+            <thead>
+              <tr><th>Setting</th><th>Base project</th><th>Findings Analysis copy</th></tr>
+            </thead>
+            <tbody>
+              {% for field in parity.fields if not field.matches and not field.expected_to_differ %}
+              <tr>
+                <td>{{ field.label }}</td>
+                <td><code>{{ field.base }}</code></td>
+                <td><code>{{ field.candidate }}</code></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endif %}
+  {% endif %}
+
+  <div class="hero">
+    <div>
+      <p class="eyebrow">Eligible SAST noise removed</p>
+      {% if comparison.comparable %}
+        <p class="figure-xl">{{ comparison.eligible_reduction_pct }}<small>%</small></p>
+      {% else %}
+        <p class="figure-xl figure-void">—</p>
+      {% endif %}
+    </div>
+    <div class="hero-caption">
+      {% if comparison.comparable %}
+      <p>
+        <strong>{{ comparison.removed }}</strong> of
+        <strong>{{ comparison.eligible_before }}</strong> eligible findings were classified
+        as false positives and never reached a human queue. Across the whole SAST backlog —
+        Critical included — that is a
+        <strong>{{ comparison.backlog_reduction_pct }}%</strong> reduction,
+        from {{ comparison.total_before }} findings to {{ comparison.total_after }}.
+      </p>
+      {% else %}
+      <p>
+        <strong>No reduction figure is published for this run.</strong> The warnings above
+        show a change Findings Analysis cannot produce, so the residual difference between
+        the two scans measures something else — most often a mature project's accumulated
+        triage, which a freshly created copy does not inherit. The per-severity table below
+        is still the raw truth of both scans; read it, not a headline percentage.
+      </p>
+      {% endif %}
+      <div class="stat-row">
+        <div class="stat">
+          <div class="value">{{ comparison.removed }}</div>
+          <div class="label">findings removed</div>
+        </div>
+        <div class="stat">
+          <div class="value">{{ comparison.hours_saved }}</div>
+          <div class="label">analyst hours saved,<br>at {{ comparison.minutes_per_finding }} min each</div>
+        </div>
+        <div class="stat">
+          <div class="value">{{ comparison.total_after }}</div>
+          <div class="label">findings left to triage</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h3>By severity</h3>
+  <div class="bar-legend">
+    <span class="key">Before</span>
+    <span class="key key-after">After Findings Analysis</span>
+  </div>
+  <div class="scroll-x">
+    <table>
+      <thead>
+        <tr>
+          <th>Severity</th>
+          <th class="num">Before</th>
+          <th class="num">After</th>
+          <th class="num">Removed</th>
+          <th class="num">Appeared</th>
+          <th class="num">Reduction</th>
+          <th class="bar-cell"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set widest = comparison.rows | map(attribute="before") | max %}
+        {% for row in comparison.rows %}
+        <tr {% if not row.eligible %}class="ineligible"{% endif %}>
+          <td>
+            <span class="sev sev-{{ row.severity|lower }}">{{ row.severity|capitalize }}</span>
+            {% if not row.eligible %}
+              <div class="note" style="font-size:0.74rem">not eligible for Findings Analysis</div>
+            {% endif %}
+          </td>
+          <td class="num">{{ row.before }}</td>
+          <td class="num">{{ row.after }}</td>
+          <td class="num">{{ row.removed or "—" }}</td>
+          <td class="num {% if row.appeared %}num-alarm{% endif %}">{{ row.appeared or "—" }}</td>
+          <td class="num">{% if row.eligible and row.before %}{{ row.reduction_pct }}%{% else %}—{% endif %}</td>
+          <td class="bar-cell">
+            <div class="bar-track" role="img"
+                 aria-label="{{ row.severity }}: {{ row.before }} before, {{ row.after }} after">
+              <div class="bar-before" style="width: {{ (row.before / widest * 100) if widest else 0 }}%"></div>
+              <div class="bar-after" style="width: {{ (row.after / widest * 100) if widest else 0 }}%"></div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="note" style="margin-top:1rem">
+    Every figure here comes from Checkmarx's own comparison of the two scans, which labels
+    each finding <strong>NEW</strong>, <strong>RECURRENT</strong> or <strong>FIXED</strong> —
+    <em>removed</em> is the FIXED count, not a subtraction of two totals.
+  </p>
+  <p class="note">
+    Critical is shown flat by design. The platform returns Critical results untouched, so an
+    unchanged Critical row is the expected outcome — and a Critical row that <em>did</em>
+    move would mean the two scans are not comparable.
+    <strong>Appeared</strong> should be zero throughout: Findings Analysis only ever removes
+    results, so anything arriving in the second scan came from a difference between the scans
+    themselves, not from the feature.
+  </p>
+</section>
+
+{% if baseline_new_share is not none %}
+<section>
+  <h3>What to expect on an established project</h3>
+  <div class="callout">
+    This run re-onboarded the code as a brand-new project, so every finding was in
+    <strong>NEW</strong> state and every finding was analysed. That is the ceiling.
+    In the original project's baseline, only <strong>{{ baseline_new_share }}%</strong> of
+    findings were NEW — so once enabled there, expect this scale of reduction on newly
+    introduced findings each scan, not a one-time drop of the whole backlog repeated forever.
+  </div>
+</section>
+{% endif %}
+
+{% if by_query %}
+<section>
+  <h3>Which query types were removed</h3>
+  <div class="scroll-x">
+    <table>
+      <thead>
+        <tr><th>Query</th><th class="num">Removed</th><th class="num">In baseline</th><th class="num">Removal rate</th></tr>
+      </thead>
+      <tbody>
+        {% for row in by_query %}
+        <tr>
+          <td>{{ row.label }}</td>
+          <td class="num">{{ row.removed }}</td>
+          <td class="num">{{ row.before }}</td>
+          <td class="num">{{ row.removal_rate_pct }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if by_cwe %}
+<section>
+  <h3>By CWE</h3>
+  <div class="scroll-x">
+    <table>
+      <thead>
+        <tr><th>CWE</th><th class="num">Removed</th><th class="num">In baseline</th><th class="num">Removal rate</th></tr>
+      </thead>
+      <tbody>
+        {% for row in by_cwe %}
+        <tr>
+          <td>{{ row.label }}</td>
+          <td class="num">{{ row.removed }}</td>
+          <td class="num">{{ row.before }}</td>
+          <td class="num">{{ row.removal_rate_pct }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section>
+  <h3>Audit trail</h3>
+  <p class="note">
+    Baseline scan <code>{{ run.baseline_scan_id }}</code> on
+    <strong>{{ run.baseline_branch }}</strong>; Findings Analysis scan
+    <code>{{ run.fa_scan_id }}</code> on project <code>{{ run.fa_project_id }}</code>.
+    Checkmarx One records the capability's own activity in that scan's logs and
+    Scan Configuration.
+  </p>
+  <ul class="steps">
+    {% for step in steps %}
+    <li>
+      <span class="at">{{ step.at[11:19] }}</span>
+      <span class="step">{{ step.step }}</span>
+      <span class="outcome-{{ step.outcome }}">{{ step.outcome }}{% if step.detail %} — {{ step.detail }}{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if run.reonboard_status != "completed" %}
+  <p class="no-print" style="margin-top:2rem"><a href="/">Run another comparison</a></p>
+  {% endif %}
+</section>
+
+{% if parity and run.reonboard_status != "completed" %}
+<section class="no-print">
+  <h3>Re-onboarding <span class="badge badge-beta">Beta</span></h3>
+  <p class="note">
+    Move the repository from <strong>{{ run.source_project_name }}</strong> onto
+    <strong>{{ run.fa_project_name }}</strong>, so the project carrying Findings
+    Analysis is the one your pushes scan. The original is disconnected and kept
+    as a manual project with its full scan history — it is never deleted.
+  </p>
+  <p><a class="button secondary" href="/runs/{{ run.id }}/reonboard">Preview re-onboarding</a></p>
+  <p class="note">
+    Opens a dry run listing every API call and its target project id.
+    Nothing is sent until you confirm it.
+  </p>
+</section>
+{% endif %}
+
+{% if run.reonboard_status == "completed" %}
+{# This project's cycle is finished: the repository has moved to the copy, and
+   the original is now an `_FA_BACKUP` the project list no longer offers. Both
+   "run another comparison" and the re-onboarding button would point somewhere
+   that has already been converted, so the only action left is the record. #}
+<section class="no-print">
+  <h3>Re-onboarding <span class="badge badge-beta">Beta</span></h3>
+  <p class="note">
+    <strong>Already re-onboarded.</strong> The repository now scans through
+    <strong>{{ run.fa_project_name }}</strong>, and
+    <strong>{{ run.source_project_name }}</strong> was kept as a manual project
+    with its full scan history.
+    <a href="/runs/{{ run.id }}/reonboard">See what was done</a>.
+  </p>
+</section>
+{% endif %}
+
+{% endblock %}

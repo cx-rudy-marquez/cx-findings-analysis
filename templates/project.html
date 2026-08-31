@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} — Findings Analysis Impact{% endblock %}
+{% block content %}
+
+<section>
+  <p class="eyebrow"><a href="/">All projects</a></p>
+  <h2>{{ project.name }}</h2>
+
+  {% if error %}
+    <div class="callout callout-danger">{{ error }}</div>
+  {% else %}
+    <p class="note">
+      Baseline: scan <code>{{ baseline.id }}</code> on <strong>{{ branch }}</strong>,
+      {{ baseline.createdAt or "date unknown" }}. Counts below are the SAST engine's own
+      results — SCA, KICS and container findings are excluded, because Findings Analysis
+      never touches them.
+    </p>
+
+    <div class="hero">
+      <div>
+        <p class="eyebrow">Eligible for Findings Analysis</p>
+        <p class="figure-xl">{{ eligible_total }}</p>
+      </div>
+      <div class="hero-caption">
+        <p>
+          Of <strong>{{ counts.CRITICAL + counts.HIGH + counts.MEDIUM + counts.LOW + counts.INFO }}</strong>
+          SAST findings in this scan, <strong>{{ eligible_total }}</strong> are High, Medium,
+          Low or Info and therefore eligible for Findings Analysis.
+          The <strong>{{ counts.CRITICAL }}</strong> Critical findings are returned untouched
+          by the platform and cannot be reduced by this capability.
+        </p>
+      </div>
+    </div>
+
+    <div class="scroll-x">
+      <table>
+        <thead>
+          <tr><th>Severity</th><th class="num">Findings</th><th>Eligible for Findings Analysis</th></tr>
+        </thead>
+        <tbody>
+          {% for severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] %}
+          <tr {% if severity == "CRITICAL" %}class="ineligible"{% endif %}>
+            <td><span class="sev sev-{{ severity|lower }}">{{ severity|capitalize }}</span></td>
+            <td class="num">{{ counts[severity] }}</td>
+            <td class="note">
+              {% if severity == "CRITICAL" %}No — Critical is never analysed{% else %}Yes{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if rebase_recommended %}
+    <div class="callout callout-warn">
+      <p>
+        <strong>This baseline is {{ baseline_age_days }} days old</strong> — past the
+        {{ rebase_stale_days }}-day threshold, so it is flagged for re-basing.
+      </p>
+      <p class="note">
+        Everything on this page is measured against that scan. A comparison anchored to
+        it would report the months of code changed since alongside whatever Findings
+        Analysis removed, and the two cannot be separated afterwards. Re-scan the project
+        first{% if cx_ui_url %} — <a href="{{ cx_ui_url }}" rel="noopener">open it in Checkmarx One</a>{% endif %} —
+        then run the comparison against the fresh baseline.
+      </p>
+    </div>
+    {% endif %}
+
+    {% if new_share is not none %}
+    <div class="callout">
+      {{ new_share }}% of this baseline is in <strong>NEW</strong> state. Findings Analysis
+      only evaluates NEW findings, so on this project as it stands today the capability would
+      act on roughly that share going forward. The comparison below re-onboards the code as a
+      fresh project, where <em>every</em> finding is new — which is what makes the measured
+      drop a ceiling rather than a forecast.
+    </div>
+    {% endif %}
+
+    {% if active_run %}
+      <div class="callout callout-warn">
+        A run for this project is already in progress.
+        <a href="/runs/{{ active_run.id }}">Watch it</a>.
+      </div>
+    {% else %}
+      <div class="no-print" style="margin-top:2rem">
+        <button type="button" onclick="document.getElementById('confirm').showModal()">
+          Test Findings Analysis on this project
+        </button>
+      </div>
+
+      <dialog id="confirm">
+        <form method="post" action="/runs">
+          <h2>This creates real resources</h2>
+          <p class="note">Confirming will, in order:</p>
+          <ul>
+            <li>Download the source archive from scan <code>{{ baseline.id }}</code></li>
+            <li>Create a new project named <strong>{{ project.name }}_FA</strong>, tagged <code>purpose=findings-analysis-poc</code></li>
+            <li>Set <code>{{ findings_analysis_key }}</code> to true on it, and read the value back to confirm it stuck</li>
+            <li>Upload the archive and start one full SAST scan</li>
+          </ul>
+          <p class="note">
+            Nothing about your existing project is modified. The <code>_FA</code> project is
+            left behind so you can audit the scan logs, and is safe to delete afterwards.
+          </p>
+
+          <label class="field">
+            Minutes to triage one finding
+            <input type="number" name="minutes_per_finding" value="{{ default_minutes }}" min="1" max="480">
+          </label>
+          <p class="note" style="font-size:0.8rem">
+            Used only for the “analyst hours saved” figure. It is an assumption, and it is
+            shown as one.
+          </p>
+
+          <input type="hidden" name="project_id" value="{{ project.id }}">
+          <input type="hidden" name="confirm" value="yes">
+          <div class="dialog-actions">
+            <button type="button" class="secondary" onclick="document.getElementById('confirm').close()">Cancel</button>
+            <button type="submit">Create {{ project.name }}_FA and scan</button>
+          </div>
+        </form>
+      </dialog>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

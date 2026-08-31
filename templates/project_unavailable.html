@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} — not a candidate{% endblock %}
+{% block content %}
+
+<section>
+  <p class="eyebrow"><a href="/">All projects</a></p>
+  <h2>{{ project.name }}</h2>
+
+  <div class="callout callout-warn">
+    <p><strong>This project is not available here — {{ reason }}.</strong></p>
+    <p class="note">{{ detail }}</p>
+  </div>
+
+  <p class="note">
+    Nothing was read or written beyond the check that produced this page. The
+    project itself is untouched in Checkmarx One.
+  </p>
+</section>
+{% endblock %}

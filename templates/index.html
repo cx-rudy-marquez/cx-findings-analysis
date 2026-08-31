@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Projects — Findings Analysis Impact{% endblock %}
+
+{# Column header that keeps the active filter while changing the sort. #}
+{% macro sort_link(key, label, current, query) -%}
+  <a class="sort{% if current == key %} sort-active{% endif %}"
+     href="/?sort={{ key }}{% if query %}&q={{ query|urlencode }}{% endif %}"
+     {% if current == key %}aria-current="true"{% endif %}>{{ label }}</a>
+{%- endmacro %}
+
+{# A severity count. Zero is deliberately not a pill: a tinted 0 reads as a
+   signal, and the absence of findings at a severity is not one. #}
+{% macro count_cell(value, severity) -%}
+  <td class="num">
+    {%- if value %}<span class="count-pill count-{{ severity }}">{{ value }}</span>
+    {%- else %}<span class="count-zero">0</span>{% endif -%}
+  </td>
+{%- endmacro %}
+
+{% block content %}
+
+{% if credential_warning %}
+<div class="callout callout-warn">
+  Live mode is unavailable: {{ credential_warning|join(", ") }} not set.
+  Set them in <code>.env</code>, or run with <code>USE_FIXTURES=true</code> for demo mode.
+</div>
+{% endif %}
+
+<section>
+  <p class="eyebrow">Step one</p>
+  <h2>Which projects would benefit most?</h2>
+  <p class="note">
+    Each project's baseline is its most recent completed scan <em>that actually ran the
+    SAST engine</em> — not simply its most recent scan. A run labelled “Full Scan” may
+    have executed SCA only and carry no SAST results at all.
+  </p>
+  <p class="note">
+    Two kinds of project are left out, so the counts below describe what is still
+    worth doing: originals a re-onboarding already converted (named
+    <code>_FA_BACKUP</code>), and projects that already scan with Findings
+    Analysis enabled. Neither has a before-and-after left to measure.
+  </p>
+
+  {% if not snapshot_built_at %}
+    <div class="callout">
+      <p><strong>The portfolio has not been built yet.</strong></p>
+      <p class="note">
+        Building it reads every project's baseline severity counts and its full scan
+        history — around ten seconds against a tenant this size. Nothing is written to
+        the tenant.
+      </p>
+      <form method="post" action="/portfolio/refresh" class="no-print">
+        <button type="submit">Build portfolio</button>
+      </form>
+    </div>
+  {% else %}
+
+  <div class="snapshot-bar no-print">
+    <div>
+      <span class="note">Counts as of <strong>{{ snapshot_built_at }}</strong></span>
+      {% if snapshot_stale %}<span class="badge badge-stale">Stale</span>{% endif %}
+      <span class="note">
+        · {{ measured_count }} of {{ rows|length }} projects have a SAST baseline
+        · {{ risk_distribution.Low }} low / {{ risk_distribution.Medium }} medium /
+        {{ risk_distribution.High }} high migration risk
+        {% if rebase_count %}
+          · <strong>{{ rebase_count }}</strong> recommended for re-base
+        {% endif %}
+      </span>
+    </div>
+    <form method="post" action="/portfolio/refresh">
+      <button type="submit" class="secondary">Refresh</button>
+    </form>
+  </div>
+
+  <form class="search no-print" method="get" action="/">
+    <input type="search" name="q" value="{{ query }}" placeholder="Filter by project name" aria-label="Filter projects by name">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <button type="submit">Filter</button>
+  </form>
+
+  <div class="data-panel">
+    <div class="scroll-x">
+      <table class="portfolio">
+        <thead>
+          <tr>
+            <th>{{ sort_link("name", "Project", sort, query) }}</th>
+            <th class="num ineligible-col" title="Findings Analysis never evaluates Critical results, so Critical is excluded from the opportunity score">
+              {{ sort_link("critical", "Crit", sort, query) }}
+            </th>
+            <th class="num">High</th>
+            <th class="num">Med</th>
+            <th class="num">Low</th>
+            <th class="num">{{ sort_link("score", "Score", sort, query) }}</th>
+            <th class="num">{{ sort_link("scans", "Scans", sort, query) }}</th>
+            <th class="num">{{ sort_link("branches", "Branches", sort, query) }}</th>
+            <th title="Age of the scan every figure on this row is measured against">
+              {{ sort_link("baseline", "Baseline", sort, query) }}
+            </th>
+            <th>{{ sort_link("risk", "Migration", sort, query) }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr class="{% if row.flagged %}flagged{% endif %}{% if row.rebase_recommended %} stale-baseline{% endif %}">
+            <td class="project-name">
+              <a href="/projects/{{ row.id }}">{{ row.name }}</a>
+              {% if row.analysed %}
+                <span class="badge badge-analysed"
+                      title="Already analysed — {{ row.name }}_FA exists in Checkmarx. Opens the existing comparison.">Analysed</span>
+                <span class="visually-hidden">
+                  Already analysed; this link opens the existing comparison.
+                </span>
+              {% endif %}
+            </td>
+            {% if row.has_baseline %}
+              <td class="num ineligible-col">{{ row.counts.CRITICAL }}</td>
+              {{ count_cell(row.counts.HIGH, "high") }}
+              {{ count_cell(row.counts.MEDIUM, "medium") }}
+              {{ count_cell(row.counts.LOW, "low") }}
+              <td class="num score">{{ row.score }}</td>
+            {% else %}
+              <td class="num note" colspan="5" title="{{ row.note }}">{{ row.note }}</td>
+            {% endif %}
+            <td class="num">{{ row.scans }}</td>
+            <td class="num">{{ row.branches }}</td>
+            <td class="baseline-cell" title="{{ row.baseline_created_at or 'No baseline scan date' }}">
+              <span class="baseline-age">{{ row.baseline_age_label }}</span>
+              {% if row.rebase_recommended %}
+                <span class="badge badge-rebase"
+                      title="Baseline is older than {{ rebase_stale_days }} days — re-base before trusting a comparison against it">Re-base</span>
+                <span class="visually-hidden">
+                  Baseline is {{ row.baseline_age_days }} days old; re-base recommended.
+                </span>
+              {% endif %}
+            </td>
+            <td>
+              <span class="risk risk-{{ row.risk.level|lower }}" title="{{ row.risk.reason }}">
+                {{ row.risk.level }}
+              </span>
+              <span class="visually-hidden">{{ row.risk.reason }}</span>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="note">No projects matched.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="note" style="margin-top:1rem">
+    <strong>Score</strong> is
+    High&times;{{ tuning.weight_high }} + Medium&times;{{ tuning.weight_medium }} +
+    Low&times;{{ tuning.weight_low }}. Critical is excluded: the platform never evaluates
+    Critical results, so those findings cannot be part of the opportunity.
+    <strong>Migration</strong> prices what re-onboarding would cost — creating a fresh
+    project discards the original's scan history. The two are kept separate on purpose:
+    how much a project would gain and how much switching it would cost are different
+    questions. <strong>Baseline</strong> is how old the scan every figure on the row is
+    measured against; past {{ rebase_stale_days }} days it is flagged for re-basing, because a
+    comparison anchored to a stale scan measures the intervening code as well as the
+    capability. Thresholds and weights live under
+    <a href="/settings">settings</a>.
+  </p>
+  {% endif %}
+</section>
+
+{% endblock %}

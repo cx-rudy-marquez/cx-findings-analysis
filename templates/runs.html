@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Recent runs — Findings Analysis Impact{% endblock %}
+{% block content %}
+
+<section>
+  <p class="eyebrow">History</p>
+  <h2>Recent runs</h2>
+  <p class="note">
+    Every Findings Analysis comparison this tool has started, newest first. Each one
+    left a <code>_FA</code> project behind in the tenant so its scan log can be audited;
+    they are safe to delete once the comparison has been read.
+  </p>
+
+  {% if runs %}
+  <div class="data-panel">
+    <div class="scroll-x">
+      <table class="portfolio">
+        <thead>
+          <tr>
+            <th>Project</th>
+            <th>Started</th>
+            <th>Status</th>
+            <th>Provenance</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in runs %}
+          <tr>
+            <td class="project-name">{{ run.source_project_name }}</td>
+            <td class="note">{{ run.created_at }}</td>
+            <td>
+              <span class="run-status run-{{ run.status }}">{{ run.status }}</span>
+              {% if run.phase %}<span class="note">— {{ run.phase }}</span>{% endif %}
+            </td>
+            <td>
+              {% if run.is_synthetic %}
+                <span class="badge badge-sample">Sample</span>
+              {% else %}
+                <span class="badge badge-live">Live</span>
+              {% endif %}
+            </td>
+            <td><a href="/runs/{{ run.id }}">View</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="callout">
+    <p><strong>No runs yet.</strong></p>
+    <p class="note">
+      Pick a project from <a href="/">Projects</a> and use “Test Findings Analysis on
+      this project”. A run creates a copy of the project with the capability enabled and
+      scans it, so the two scans can be compared.
+    </p>
+  </div>
+  {% endif %}
+</section>
+
+{% endblock %}

@@ -1,0 +1,608 @@
+/* Findings Analysis Impact Dashboard
+   Direction: editorial report, not a console. This page ends up in a slide or a
+   PDF attached to a request for budget, so it is built light, high-contrast and
+   print-friendly, with one accent reserved for "removed by Findings Analysis"
+   and nothing else. Scale contrast carries the hierarchy - the hero figure is
+   deliberately enormous next to 13px table text. */
+
+:root {
+  --ink: oklch(21% 0.02 260);
+  --ink-soft: oklch(46% 0.015 260);
+  --ink-faint: oklch(64% 0.012 260);
+  --rule: oklch(89% 0.008 260);
+  --rule-strong: oklch(78% 0.01 260);
+  --paper: oklch(98.5% 0.003 260);
+  --surface: oklch(100% 0 0);
+  --surface-sunken: oklch(96.5% 0.005 260);
+
+  /* One accent, used only for the removal story. */
+  --accent: oklch(52% 0.16 232);
+  --accent-soft: oklch(93% 0.045 232);
+  --warn: oklch(52% 0.15 55);
+  --warn-soft: oklch(95% 0.05 70);
+  --danger: oklch(50% 0.19 22);
+
+  --sev-critical: oklch(46% 0.19 22);
+  --sev-high: oklch(58% 0.17 40);
+  --sev-medium: oklch(68% 0.14 78);
+  --sev-low: oklch(62% 0.09 210);
+  --sev-info: oklch(70% 0.02 260);
+
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Product chrome. Kept separate from --accent on purpose: --accent means
+     "removed by Findings Analysis" and nothing else, so navigation and buttons
+     needed their own colour rather than borrowing that meaning. */
+  --chrome: oklch(48% 0.20 292);
+  --chrome-soft: oklch(95% 0.035 292);
+  --row-hover: oklch(97.5% 0.006 292);
+  --panel-border: oklch(90% 0.007 260);
+
+  --measure: 68ch;
+  --gutter: clamp(1.25rem, 1rem + 2vw, 3.5rem);
+  --duration: 200ms;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:hover { color: var(--ink); }
+
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--gutter) 6rem; }
+
+/* --- masthead ----------------------------------------------------------- */
+
+.masthead {
+  border-bottom: 2px solid var(--ink);
+  margin-bottom: 2.5rem;
+  padding: 1.5rem 0 0.85rem;
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.masthead h1 {
+  font-family: var(--serif);
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.masthead h1 a { color: inherit; text-decoration: none; }
+.masthead .spacer { flex: 1 1 auto; }
+.masthead .meta {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* --- tabs ---------------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  margin: -2rem 0 2rem;
+  border-bottom: 1px solid var(--rule);
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 0.9rem;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color var(--duration) var(--ease), border-color var(--duration) var(--ease);
+}
+.tab:hover { color: var(--ink); background: var(--surface-sunken); }
+.tab-active { color: var(--chrome); border-bottom-color: var(--chrome); }
+.tab-active:hover { color: var(--chrome); }
+
+/* Icon-only, so it is set apart from the labelled tabs and pushed to the end. */
+.tab-icon { margin-left: auto; padding: 0.6rem 0.7rem; }
+.tab-icon svg { display: block; }
+
+/* --- provenance badge ---------------------------------------------------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.55rem;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+}
+.badge::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.badge-sample { color: var(--warn); background: var(--warn-soft); }
+.badge-live   { color: var(--accent); background: var(--accent-soft); }
+
+/* --- generic blocks ------------------------------------------------------ */
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 0.4rem;
+}
+h2 {
+  font-family: var(--serif);
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.75rem;
+}
+h3 {
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  margin: 2.5rem 0 0.75rem;
+}
+p { max-width: var(--measure); }
+.note { color: var(--ink-soft); font-size: 0.88rem; }
+
+section + section { margin-top: 3rem; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 1.25rem 1.4rem;
+}
+.callout {
+  border-left: 3px solid var(--rule-strong);
+  padding: 0.1rem 0 0.1rem 1rem;
+  margin: 1.25rem 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  max-width: var(--measure);
+}
+.callout-warn { border-left-color: var(--warn); color: var(--ink); }
+.callout-danger { border-left-color: var(--danger); color: var(--ink); }
+
+/* --- hero figure --------------------------------------------------------- */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: clamp(1.5rem, 4vw, 4rem);
+  align-items: end;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--rule);
+}
+.figure-xl {
+  font-family: var(--serif);
+  font-size: clamp(4.5rem, 2rem + 13vw, 10rem);
+  line-height: 0.85;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  margin: 0;
+}
+.figure-xl small {
+  font-size: 0.28em;
+  letter-spacing: -0.01em;
+  color: var(--ink-soft);
+}
+.hero-caption { max-width: 46ch; color: var(--ink-soft); }
+.hero-caption strong { color: var(--ink); }
+
+.stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2.5rem;
+  margin-top: 1.75rem;
+}
+.stat { min-width: 7rem; }
+.stat .value {
+  font-family: var(--serif);
+  font-size: 2.1rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.stat .label {
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  margin-top: 0.3rem;
+}
+
+/* --- tables -------------------------------------------------------------- */
+
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+.scroll-x { overflow-x: auto; }
+th {
+  text-align: left;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  border-bottom: 1px solid var(--rule-strong);
+  padding: 0 0.75rem 0.5rem 0;
+  white-space: nowrap;
+}
+td {
+  padding: 0.6rem 0.75rem 0.6rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: middle;
+}
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr:hover td { background: var(--surface-sunken); }
+
+/* A bounded surface for a dense data table, the way the platform's own project
+   list presents one: the rows read as a single object against the page rather
+   than as free-floating text. */
+.data-panel {
+  background: var(--surface);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.data-panel table { font-size: 0.85rem; }
+.data-panel th {
+  background: var(--surface-sunken);
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.data-panel td { padding: 0.42rem 0.75rem; }
+/* Rows run to the panel edge, but the text does not sit on the border. */
+.data-panel th:first-child, .data-panel td:first-child { padding-left: 1rem; }
+.data-panel th:last-child, .data-panel td:last-child { padding-right: 1rem; }
+.data-panel tbody tr:last-child td { border-bottom: 0; }
+.data-panel tbody tr:hover td { background: var(--row-hover); }
+tr.ineligible td { color: var(--ink-faint); background: repeating-linear-gradient(
+  -45deg, transparent, transparent 7px, oklch(96% 0.004 260) 7px, oklch(96% 0.004 260) 8px); }
+
+.sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+.sev::before {
+  content: "";
+  width: 3px; height: 1.05em;
+  border-radius: 1px;
+  background: var(--sev-info);
+}
+.sev-critical::before { background: var(--sev-critical); }
+.sev-high::before     { background: var(--sev-high); }
+.sev-medium::before   { background: var(--sev-medium); }
+.sev-low::before      { background: var(--sev-low); }
+
+/* --- bars (no charting library: fewer bytes, no third-party script,
+       and it survives being printed) ------------------------------------- */
+
+.bar-cell { min-width: 180px; width: 40%; }
+.bar-track {
+  position: relative;
+  height: 10px;
+  background: var(--surface-sunken);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.bar-before {
+  position: absolute; inset: 0 auto 0 0;
+  background: var(--rule-strong);
+  border-radius: 2px;
+}
+.bar-after {
+  position: absolute; inset: 0 auto 0 0;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width var(--duration) var(--ease);
+}
+.bar-legend {
+  display: flex; gap: 1.25rem; align-items: center;
+  font-size: 0.75rem; color: var(--ink-faint); margin: 0.5rem 0 1rem;
+}
+.key { display: inline-flex; align-items: center; gap: 0.4rem; }
+.key::before { content: ""; width: 14px; height: 8px; border-radius: 2px; background: var(--rule-strong); }
+.key-after::before { background: var(--accent); }
+
+/* --- project list -------------------------------------------------------- */
+
+.search { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+input[type="search"], input[type="number"] {
+  font: inherit;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink);
+}
+input[type="search"] { flex: 1 1 auto; max-width: 26rem; }
+input:focus-visible, button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--chrome);
+  outline-offset: 2px;
+}
+
+.project-name { font-weight: 600; }
+.project-name a { color: var(--ink); text-decoration: none; }
+.project-name a:hover { text-decoration: underline; text-decoration-color: var(--accent); }
+
+/* --- buttons ------------------------------------------------------------- */
+
+button, .button {
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.88rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: 3px;
+  border: 1px solid var(--chrome);
+  background: var(--chrome);
+  color: #fff;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  transition: background var(--duration) var(--ease), color var(--duration) var(--ease);
+}
+button:hover, .button:hover {
+  background: color-mix(in oklch, var(--chrome) 82%, black);
+  border-color: color-mix(in oklch, var(--chrome) 82%, black);
+  color: #fff;
+}
+button.secondary, .button.secondary {
+  background: transparent; color: var(--ink); border-color: var(--rule-strong);
+}
+button.secondary:hover, .button.secondary:hover { border-color: var(--ink); background: var(--surface-sunken); color: var(--ink); }
+button[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+/* --- confirmation dialog ------------------------------------------------- */
+
+dialog {
+  border: 1px solid var(--rule-strong);
+  border-radius: 5px;
+  padding: 1.75rem;
+  max-width: 34rem;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: 0 24px 60px -20px oklch(21% 0.02 260 / 0.35);
+}
+dialog::backdrop { background: oklch(21% 0.02 260 / 0.45); }
+dialog h2 { font-size: 1.25rem; }
+dialog ul { padding-left: 1.1rem; color: var(--ink-soft); font-size: 0.9rem; }
+dialog li { margin-bottom: 0.35rem; }
+.dialog-actions { display: flex; gap: 0.6rem; justify-content: flex-end; margin-top: 1.5rem; }
+.field { display: flex; align-items: center; gap: 0.6rem; margin-top: 1rem; font-size: 0.88rem; }
+.field input { width: 5.5rem; }
+
+/* --- step log ------------------------------------------------------------ */
+
+.steps { font-family: var(--mono); font-size: 0.78rem; list-style: none; padding: 0; margin: 0; }
+.steps li {
+  display: grid;
+  grid-template-columns: 6.5rem 9rem 1fr;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+.steps .at { color: var(--ink-faint); }
+.steps .outcome-ok::after, .steps .outcome-reused::after { content: " ✓"; color: var(--accent); }
+.steps .outcome-failed { color: var(--danger); }
+
+.phase {
+  font-family: var(--serif);
+  font-size: clamp(1.6rem, 1rem + 2.5vw, 2.6rem);
+  letter-spacing: -0.02em;
+  margin: 0.5rem 0 0;
+}
+.pulse::after {
+  content: "";
+  display: inline-block;
+  width: 0.4em; height: 0.4em;
+  margin-left: 0.35em;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.4s var(--ease) infinite;
+  vertical-align: middle;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+@media (max-width: 720px) {
+  .hero { grid-template-columns: 1fr; align-items: start; }
+  .steps li { grid-template-columns: 1fr; gap: 0.1rem; }
+}
+
+@media print {
+  body { background: #fff; }
+  .no-print { display: none !important; }
+  .hero { break-inside: avoid; }
+}
+
+/* A withheld headline: present, clearly empty, not styled as a zero. */
+.figure-void {
+  color: var(--ink-faint);
+}
+
+/* A count that should be zero. Findings appearing in the second scan means the
+   comparison is not controlled, so the cell says so rather than reading as
+   ordinary data. */
+.num-alarm {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/* --- portfolio ------------------------------------------------------------ */
+
+.snapshot-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 1.25rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
+
+/* Cached figures are never presented as current: the timestamp always shows,
+   and this marks one old enough to distrust. */
+.badge-stale { color: var(--warn); background: var(--warn-soft); }
+
+.portfolio th .sort { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--rule-strong); }
+.portfolio th .sort:hover { color: var(--accent); }
+.portfolio th .sort-active { border-bottom: 2px solid var(--accent); color: var(--ink); }
+
+/* Critical is shown but visibly set apart - it cannot contribute to the score. */
+.portfolio .ineligible-col { color: var(--ink-faint); }
+
+.portfolio .score { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.portfolio tr.flagged { background: var(--accent-soft); }
+
+/* One badge system for the whole row. The severity counts, the risk label and
+   the run status all share a shape, so a row reads as a set of comparable
+   signals rather than three unrelated decorations. */
+.count-pill, .risk, .run-status {
+  display: inline-block;
+  min-width: 2.4rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 3px;
+  font-size: 0.78rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.count-high   { color: var(--sev-high);     background: color-mix(in oklch, var(--sev-high) 14%, var(--surface)); }
+.count-medium { color: oklch(45% 0.12 78);  background: color-mix(in oklch, var(--sev-medium) 22%, var(--surface)); }
+.count-low    { color: var(--sev-low);      background: color-mix(in oklch, var(--sev-low) 13%, var(--surface)); }
+
+/* Zero is not a signal, so it is not given the weight of one. */
+.count-zero { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
+.risk { cursor: help; min-width: 4.2rem; }
+.risk-low { color: var(--sev-low); background: color-mix(in oklch, var(--sev-low) 12%, var(--surface)); }
+.risk-medium { color: var(--sev-medium); background: color-mix(in oklch, var(--sev-medium) 16%, var(--surface)); }
+.risk-high { color: var(--sev-critical); background: color-mix(in oklch, var(--sev-critical) 12%, var(--surface)); }
+
+/* The risk reason must reach a screen reader too - a title attribute alone is
+   a mouse-only affordance. */
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- baseline age -------------------------------------------------------- */
+
+.baseline-cell { white-space: nowrap; }
+.baseline-age { color: var(--ink-soft); font-size: 0.82rem; }
+
+/* Old enough that a comparison anchored to it is measuring two things at once.
+   Marked on the row, not only in the cell, because the whole row's figures are
+   what the age qualifies. */
+.badge-analysed { color: var(--muted); background: var(--surface-sunken); border: 1px solid var(--panel-border); margin-left: 0.5rem; }
+.badge-rebase { color: var(--warn); background: var(--warn-soft); margin-left: 0.4rem; }
+tr.stale-baseline .baseline-age { color: var(--warn); font-weight: 600; }
+
+/* --- run status ---------------------------------------------------------- */
+
+.run-status { min-width: 5.5rem; text-transform: capitalize; }
+.run-completed { color: var(--accent); background: var(--accent-soft); }
+.run-failed    { color: var(--danger); background: color-mix(in oklch, var(--danger) 10%, var(--surface)); }
+.run-canceled  { color: var(--ink-soft); background: var(--surface-sunken); }
+.run-running, .run-pending { color: var(--warn); background: var(--warn-soft); }
+
+/* --- parameter parity ---------------------------------------------------- */
+
+.parity-ok {
+  border-left: 3px solid var(--chrome);
+  background: var(--chrome-soft);
+  padding: 0.5rem 0.9rem;
+  border-radius: 0 3px 3px 0;
+  margin: 1.25rem 0;
+  max-width: var(--measure);
+}
+.parity-table { margin-top: 0.75rem; font-size: 0.83rem; }
+.parity-table code { font-family: var(--mono); font-size: 0.95em; }
+
+/* --- [beta] re-onboarding ------------------------------------------------ */
+
+/* Beta is a warning, not a decoration: this flow changes live SCM state. */
+.badge-beta { color: var(--warn); background: var(--warn-soft); }
+
+.plan-facts {
+  display: grid;
+  grid-template-columns: minmax(9rem, auto) 1fr;
+  gap: 0.4rem 1.25rem;
+  max-width: var(--measure);
+  margin: 0.75rem 0 1.5rem;
+  font-size: 0.88rem;
+}
+.plan-facts dt { color: var(--ink-faint); }
+.plan-facts dd { margin: 0; }
+
+.payload { margin: 0 0 1.5rem; }
+.payload summary { cursor: pointer; font-size: 0.85rem; color: var(--ink-soft); }
+.payload pre, pre.failure {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  background: var(--surface-sunken);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  margin: 0.6rem 0 0;
+}
+
+@media (max-width: 720px) {
+  .plan-facts { grid-template-columns: 1fr; gap: 0.15rem; }
+  .plan-facts dd { margin-bottom: 0.6rem; }
+}
+
+/* --- settings ------------------------------------------------------------ */
+
+.settings-notes { max-width: var(--measure); }
+.settings-notes dt { font-weight: 650; font-size: 0.9rem; margin-top: 1.1rem; }
+.settings-notes dd { margin: 0.3rem 0 0; color: var(--ink-soft); font-size: 0.88rem; }
+
+.tuning { margin-top: 1.5rem; }
+.tuning summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; }
+.tuning-form { display: flex; flex-wrap: wrap; gap: 1.25rem; align-items: flex-end; margin: 0 0 1rem; }
+.tuning fieldset, .panel fieldset { border: 1px solid var(--rule); border-radius: 3px; padding: 0.6rem 0.9rem 0.8rem; }
+.tuning legend, .panel legend { font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); }
+.tuning label, .panel label { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; margin-right: 0.75rem; }
+.tuning input[type="number"], .panel input[type="number"] { width: 4.5rem; }

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Run in progress — {{ run.source_project_name }}{% endblock %}
+{% block content %}
+
+<section>
+  <p class="eyebrow">{{ run.source_project_name }} → {{ run.fa_project_name or (run.source_project_name ~ fa_suffix) }}</p>
+  <h2>Findings Analysis run</h2>
+
+  <p class="phase {% if not run.status in ['completed', 'failed', 'canceled'] %}pulse{% endif %}" id="phase">
+    {{ run.phase or run.status }}
+  </p>
+  <p class="note" id="scan-line">
+    {% if run.fa_scan_id %}Scan <code>{{ run.fa_scan_id }}</code>{% else %}No scan submitted yet.{% endif %}
+  </p>
+
+  {% if run.error %}
+    <div class="callout callout-danger">{{ run.error }}</div>
+  {% endif %}
+
+  {% if run.status in ['pending', 'running'] %}
+  <form class="no-print" method="post" action="/runs/{{ run.id }}/cancel" style="margin-top:1.5rem">
+    <button type="submit" class="secondary">Cancel this scan</button>
+  </form>
+  {% endif %}
+
+  <h3>Step log</h3>
+  <p class="note">
+    Every tenant-modifying call is recorded here before it fires, so an interrupted run
+    still shows what was created.
+  </p>
+  <ul class="steps" id="steps">
+    {% for step in steps %}
+    <li>
+      <span class="at">{{ step.at[11:19] }}</span>
+      <span class="step">{{ step.step }}</span>
+      <span class="outcome-{{ step.outcome }}">{{ step.outcome }}{% if step.detail %} — {{ step.detail }}{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Poll the run's own status rather than the Checkmarx API: the background
+  // task is already polling the scan, and a second poller would double the
+  // request rate against the tenant for no extra information.
+  const runId = {{ run.id | tojson }};
+  const intervalMs = {{ poll_seconds }} * 1000;
+
+  async function tick() {
+    try {
+      const res = await fetch(`/runs/${runId}/status`, { headers: { Accept: "application/json" } });
+      if (!res.ok) return;
+      const data = await res.json();
+
+      document.getElementById("phase").textContent = data.phase || data.status;
+      if (data.fa_scan_id) {
+        document.getElementById("scan-line").innerHTML =
+          "Scan <code>" + data.fa_scan_id.replace(/[<>&]/g, "") + "</code>";
+      }
+
+      const list = document.getElementById("steps");
+      list.replaceChildren(...data.steps.map((step) => {
+        const li = document.createElement("li");
+        const at = document.createElement("span");
+        at.className = "at";
+        at.textContent = (step.at || "").slice(11, 19);
+        const name = document.createElement("span");
+        name.textContent = step.step;
+        const outcome = document.createElement("span");
+        outcome.className = "outcome-" + step.outcome;
+        outcome.textContent = step.outcome + (step.detail ? " — " + step.detail : "");
+        li.append(at, name, outcome);
+        return li;
+      }));
+
+      if (data.done) {
+        // The comparison lives at this same URL once results exist.
+        window.location.reload();
+      }
+    } catch (err) {
+      // A dropped poll is not worth an error banner; the next tick recovers.
+    }
+  }
+
+  setInterval(tick, intervalMs);
+  tick();
+</script>
+{% endblock %}

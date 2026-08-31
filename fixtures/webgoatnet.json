@@ -1,0 +1,995 @@
+{
+  "_note": "SYNTHETIC / ILLUSTRATIVE. The baseline severity counts are real - they come from scan 466e31c9-2898-4b2f-834c-c7d72f163162 of rmarquez/WebGoatNet, 30 Jul 2026, SAST engine only. The 'after' numbers are NOT measured: no Findings-Analysis-enabled scan was ever run to produce them. Anything derived from this file is badged 'Sample Data' in the UI for that reason. The `portfolio` block is likewise illustrative: only rmarquez/WebGoatNet's severity counts and scan history are real. The other projects exist so the portfolio ranking, all three migration-risk levels and the no-SAST-baseline row can be demonstrated without a tenant. Baseline dates in `portfolio` and the `configs` block are synthetic too: they exist so the re-base recommendation and the SAST parameter parity check - including a deliberate mismatch on fixture-auth-service and fixture-legacy-billing - can be demonstrated without a tenant. The `scms`, `scm_projects` and `protected_branches` blocks are synthetic as well; they exist so the BETA re-onboarding preview - including the refusal when a project is the last one connected to its integration - can be demonstrated without touching a tenant.",
+  "projects": [
+    {
+      "id": "fixture-webgoatnet",
+      "name": "rmarquez/WebGoatNet",
+      "repoUrl": "https://gitlab.com/rmarquez/WebGoatNet",
+      "mainBranch": "master",
+      "criticality": 5,
+      "riskLevel": "Critical",
+      "createdAt": "2026-05-14T10:02:00Z",
+      "repoId": 52001,
+      "scmRepoId": "WebGoatNet",
+      "origin": "GitLab"
+    },
+    {
+      "id": "fixture-payments-api",
+      "name": "acme/payments-api",
+      "repoUrl": "https://github.com/acme/payments-api",
+      "mainBranch": "main",
+      "criticality": 4,
+      "riskLevel": "High",
+      "createdAt": "2026-06-02T08:15:00Z",
+      "repoId": 52002,
+      "scmRepoId": "payments-api",
+      "origin": "GitHub"
+    },
+    {
+      "id": "fixture-storefront",
+      "name": "acme/storefront-web",
+      "mainBranch": "main",
+      "repoUrl": "https://github.com/acme/storefront-web",
+      "criticality": 3,
+      "riskLevel": "Medium",
+      "createdAt": "2026-06-01T09:00:00Z",
+      "repoId": 52003,
+      "scmRepoId": "storefront-web",
+      "origin": "GitHub"
+    },
+    {
+      "id": "fixture-auth-service",
+      "name": "acme/auth-service",
+      "mainBranch": "master",
+      "repoUrl": "https://bitbucket.org/acme/auth-service",
+      "criticality": 5,
+      "riskLevel": "Medium",
+      "createdAt": "2026-06-01T09:00:00Z",
+      "repoId": 52004,
+      "scmRepoId": "auth-service",
+      "origin": "Bitbucket"
+    },
+    {
+      "id": "fixture-internal-tools",
+      "name": "acme/internal-tools",
+      "mainBranch": null,
+      "repoUrl": "https://github.com/acme/internal-tools",
+      "criticality": 2,
+      "riskLevel": "Medium",
+      "createdAt": "2026-06-01T09:00:00Z",
+      "repoId": 52005,
+      "scmRepoId": "internal-tools",
+      "origin": "GitHub"
+    },
+    {
+      "id": "fixture-legacy-billing",
+      "name": "acme/legacy-billing",
+      "mainBranch": "master",
+      "repoUrl": "https://github.com/acme/legacy-billing",
+      "criticality": 4,
+      "riskLevel": "Medium",
+      "createdAt": "2026-06-01T09:00:00Z",
+      "repoId": 52006,
+      "scmRepoId": "legacy-billing",
+      "origin": "GitHub"
+    },
+    {
+      "id": "fixture-docs-site",
+      "name": "acme/docs-site",
+      "mainBranch": "main",
+      "repoUrl": "https://github.com/acme/docs-site",
+      "criticality": 1,
+      "riskLevel": "Medium",
+      "createdAt": "2026-06-01T09:00:00Z",
+      "repoId": 52007,
+      "scmRepoId": "docs-site",
+      "origin": "GitHub"
+    },
+    {
+      "id": "fixture-mobile-api",
+      "name": "acme/mobile-api",
+      "mainBranch": "main",
+      "repoUrl": "https://github.com/acme/mobile-api",
+      "criticality": 3,
+      "riskLevel": "Medium",
+      "createdAt": "2026-06-01T09:00:00Z",
+      "repoId": 52008,
+      "scmRepoId": "mobile-api",
+      "origin": "GitHub"
+    },
+    {
+      "id": "fixture-checkout_FA_BACKUP",
+      "name": "acme/checkout_FA_BACKUP",
+      "mainBranch": "main",
+      "repoUrl": "https://github.com/acme/checkout",
+      "criticality": 2,
+      "riskLevel": "Medium",
+      "createdAt": "2026-06-01T09:00:00Z"
+    },
+    {
+      "id": "fixture-search-api",
+      "name": "acme/search-api",
+      "mainBranch": "main",
+      "repoUrl": "https://github.com/acme/search-api",
+      "criticality": 2,
+      "riskLevel": "Medium",
+      "createdAt": "2026-06-01T09:00:00Z",
+      "repoId": 52010,
+      "scmRepoId": "search-api",
+      "origin": "GitHub"
+    },
+    {
+      "id": "fixture-notifications",
+      "name": "acme/notifications",
+      "mainBranch": "main",
+      "repoUrl": "https://github.com/acme/notifications",
+      "criticality": 2,
+      "riskLevel": "Medium",
+      "createdAt": "2026-06-01T09:00:00Z",
+      "repoId": 52011,
+      "scmRepoId": "notifications",
+      "origin": "GitHub"
+    },
+    {
+      "id": "fixture-notifications_FA",
+      "name": "acme/notifications_FA",
+      "mainBranch": "main",
+      "repoUrl": "https://github.com/acme/notifications",
+      "criticality": 2,
+      "riskLevel": "Medium",
+      "createdAt": "2026-06-01T09:00:00Z",
+      "origin": "findings-analysis-dashboard"
+    },
+    {
+      "id": "fixture-legacy-uploader",
+      "name": "acme/legacy-uploader",
+      "repoUrl": "https://github.com/acme/legacy-uploader.git",
+      "mainBranch": "main",
+      "criticality": 4,
+      "riskLevel": "High",
+      "createdAt": "2026-05-30T09:00:00Z"
+    },
+    {
+      "id": "fixture-webhook-only",
+      "name": "acme/webhook-only",
+      "repoUrl": "",
+      "mainBranch": "main",
+      "criticality": 3,
+      "riskLevel": "Medium",
+      "createdAt": "2026-05-30T09:00:00Z"
+    }
+  ],
+  "baseline_scan": {
+    "id": "466e31c9-2898-4b2f-834c-c7d72f163162",
+    "projectId": "fixture-webgoatnet",
+    "branch": "master",
+    "status": "Completed",
+    "createdAt": "2026-07-30T09:48:00Z",
+    "updatedAt": "2026-07-30T09:53:19Z",
+    "sourceType": "gitlab",
+    "engines": [
+      "sast",
+      "sca",
+      "kics",
+      "containers",
+      "microengines"
+    ]
+  },
+  "baseline_status_counters": [
+    {
+      "status": "NEW",
+      "counter": 20
+    },
+    {
+      "status": "RECURRENT",
+      "counter": 108
+    }
+  ],
+  "categories": [
+    {
+      "severity": "CRITICAL",
+      "queryName": "Connection String Injection",
+      "cwe": 89,
+      "before": 30,
+      "removed": 0
+    },
+    {
+      "severity": "CRITICAL",
+      "queryName": "Deserialization of Untrusted Data",
+      "cwe": 502,
+      "before": 33,
+      "removed": 0
+    },
+    {
+      "severity": "HIGH",
+      "queryName": "Reflected XSS All Clients",
+      "cwe": 79,
+      "before": 3,
+      "removed": 1
+    },
+    {
+      "severity": "HIGH",
+      "queryName": "SQL Injection",
+      "cwe": 89,
+      "before": 2,
+      "removed": 0
+    },
+    {
+      "severity": "MEDIUM",
+      "queryName": "Stored XSS",
+      "cwe": 79,
+      "before": 9,
+      "removed": 6
+    },
+    {
+      "severity": "MEDIUM",
+      "queryName": "CSRF",
+      "cwe": 352,
+      "before": 8,
+      "removed": 4
+    },
+    {
+      "severity": "MEDIUM",
+      "queryName": "Improper Resource Shutdown or Release",
+      "cwe": 404,
+      "before": 10,
+      "removed": 2
+    },
+    {
+      "severity": "MEDIUM",
+      "queryName": "Use of Hard-coded Password",
+      "cwe": 259,
+      "before": 6,
+      "removed": 0
+    },
+    {
+      "severity": "LOW",
+      "queryName": "Information Exposure Through an Error Message",
+      "cwe": 209,
+      "before": 12,
+      "removed": 8
+    },
+    {
+      "severity": "LOW",
+      "queryName": "Missing X Frame Options",
+      "cwe": 1021,
+      "before": 9,
+      "removed": 3
+    },
+    {
+      "severity": "LOW",
+      "queryName": "Use of Insufficiently Random Values",
+      "cwe": 330,
+      "before": 6,
+      "removed": 1
+    }
+  ],
+  "portfolio": {
+    "fixture-webgoatnet": {
+      "severities": {
+        "CRITICAL": 63,
+        "HIGH": 5,
+        "MEDIUM": 33,
+        "LOW": 27
+      },
+      "scans": 16,
+      "branches": 3,
+      "baseline_created_at": "2026-07-30T09:41:00Z",
+      "engines": [
+        "sast",
+        "sca",
+        "kics",
+        "containers",
+        "microengines"
+      ]
+    },
+    "fixture-payments-api": {
+      "severities": {
+        "CRITICAL": 12,
+        "HIGH": 21,
+        "MEDIUM": 44,
+        "LOW": 30
+      },
+      "scans": 2,
+      "branches": 1,
+      "engines": [
+        "sast"
+      ]
+    },
+    "fixture-storefront": {
+      "severities": {
+        "CRITICAL": 4,
+        "HIGH": 9,
+        "MEDIUM": 51,
+        "LOW": 62
+      },
+      "scans": 5,
+      "branches": 2,
+      "baseline_created_at": "2026-08-11T14:20:00Z",
+      "engines": [
+        "sast",
+        "sca"
+      ]
+    },
+    "fixture-auth-service": {
+      "severities": {
+        "CRITICAL": 31,
+        "HIGH": 14,
+        "MEDIUM": 8,
+        "LOW": 3
+      },
+      "scans": 58,
+      "branches": 2,
+      "baseline_created_at": "2026-02-03T08:05:00Z",
+      "engines": [
+        "sast"
+      ]
+    },
+    "fixture-internal-tools": {
+      "severities": {
+        "CRITICAL": 0,
+        "HIGH": 2,
+        "MEDIUM": 6,
+        "LOW": 11
+      },
+      "scans": 1,
+      "branches": 1,
+      "baseline_created_at": "2026-06-18T11:30:00Z",
+      "engines": [
+        "sast"
+      ]
+    },
+    "fixture-legacy-billing": {
+      "severities": {
+        "CRITICAL": 18,
+        "HIGH": 11,
+        "MEDIUM": 29,
+        "LOW": 17
+      },
+      "scans": 31,
+      "branches": 11,
+      "baseline_created_at": "2025-11-12T16:55:00Z",
+      "engines": [
+        "sast",
+        "apisec"
+      ]
+    },
+    "fixture-docs-site": {
+      "severities": null,
+      "scans": 3,
+      "branches": 2
+    },
+    "fixture-mobile-api": {
+      "severities": {
+        "CRITICAL": 7,
+        "HIGH": 6,
+        "MEDIUM": 19,
+        "LOW": 24
+      },
+      "scans": 2,
+      "branches": 1,
+      "baseline_created_at": "2026-08-25T13:00:00Z",
+      "engines": [
+        "sast"
+      ]
+    },
+    "fixture-checkout_FA_BACKUP": {
+      "severities": {
+        "CRITICAL": 4,
+        "HIGH": 31,
+        "MEDIUM": 44,
+        "LOW": 12
+      },
+      "scans": 21,
+      "branches": 4,
+      "baseline_created_at": "2026-08-02T10:00:00Z",
+      "engines": [
+        "sast"
+      ]
+    },
+    "fixture-search-api": {
+      "severities": {
+        "CRITICAL": 2,
+        "HIGH": 26,
+        "MEDIUM": 38,
+        "LOW": 9
+      },
+      "scans": 7,
+      "branches": 2,
+      "baseline_created_at": "2026-08-10T10:00:00Z",
+      "engines": [
+        "sast"
+      ]
+    },
+    "fixture-notifications": {
+      "severities": {
+        "CRITICAL": 1,
+        "HIGH": 12,
+        "MEDIUM": 20,
+        "LOW": 6
+      },
+      "scans": 4,
+      "branches": 1,
+      "baseline_created_at": "2026-08-18T10:00:00Z",
+      "engines": [
+        "sast"
+      ]
+    },
+    "fixture-notifications_FA": {
+      "severities": {
+        "CRITICAL": 1,
+        "HIGH": 12,
+        "MEDIUM": 20,
+        "LOW": 6
+      },
+      "scans": 1,
+      "branches": 1,
+      "baseline_created_at": "2026-08-25T10:00:00Z",
+      "engines": [
+        "sast"
+      ]
+    },
+    "fixture-legacy-uploader": {
+      "severities": {
+        "CRITICAL": 2,
+        "HIGH": 18,
+        "MEDIUM": 25,
+        "LOW": 9
+      },
+      "scans": 3,
+      "branches": 1,
+      "baseline_created_at": "2026-08-19T10:00:00Z",
+      "engines": [
+        "sast"
+      ]
+    },
+    "fixture-webhook-only": {
+      "severities": {
+        "CRITICAL": 1,
+        "HIGH": 9,
+        "MEDIUM": 14,
+        "LOW": 4
+      },
+      "scans": 2,
+      "branches": 1,
+      "baseline_created_at": "2026-08-20T10:00:00Z",
+      "engines": [
+        "sast"
+      ]
+    }
+  },
+  "configs": {
+    "fixture-webgoatnet": [
+      {
+        "key": "scan.config.sast.fastScanMode",
+        "name": "fast scan mode",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.filter",
+        "name": "folder/file filter",
+        "category": "sast",
+        "value": "",
+        "valuetype": "Block"
+      },
+      {
+        "key": "scan.config.sast.incremental",
+        "name": "incremental",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.extendedAnalysis",
+        "name": "LLM-based scanning",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.presetName",
+        "name": "presetName",
+        "category": "sast",
+        "value": "ASA Premium",
+        "valuetype": "RESTList"
+      },
+      {
+        "key": "scan.config.sast.recommendedExclusions",
+        "name": "recommended exclusions",
+        "category": "sast",
+        "value": "true",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.findingsAnalysis",
+        "name": "Findings Analysis",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      }
+    ],
+    "fixture-mobile-api": [
+      {
+        "key": "scan.config.sast.fastScanMode",
+        "name": "fast scan mode",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.filter",
+        "name": "folder/file filter",
+        "category": "sast",
+        "value": "",
+        "valuetype": "Block"
+      },
+      {
+        "key": "scan.config.sast.incremental",
+        "name": "incremental",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.extendedAnalysis",
+        "name": "LLM-based scanning",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.presetName",
+        "name": "presetName",
+        "category": "sast",
+        "value": "ASA Premium",
+        "valuetype": "RESTList"
+      },
+      {
+        "key": "scan.config.sast.recommendedExclusions",
+        "name": "recommended exclusions",
+        "category": "sast",
+        "value": "true",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.findingsAnalysis",
+        "name": "Findings Analysis",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      }
+    ],
+    "fixture-internal-tools": [
+      {
+        "key": "scan.config.sast.fastScanMode",
+        "name": "fast scan mode",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.filter",
+        "name": "folder/file filter",
+        "category": "sast",
+        "value": "",
+        "valuetype": "Block"
+      },
+      {
+        "key": "scan.config.sast.incremental",
+        "name": "incremental",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.extendedAnalysis",
+        "name": "LLM-based scanning",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.presetName",
+        "name": "presetName",
+        "category": "sast",
+        "value": "ASA Premium",
+        "valuetype": "RESTList"
+      },
+      {
+        "key": "scan.config.sast.recommendedExclusions",
+        "name": "recommended exclusions",
+        "category": "sast",
+        "value": "true",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.findingsAnalysis",
+        "name": "Findings Analysis",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      }
+    ],
+    "fixture-storefront": [
+      {
+        "key": "scan.config.sast.fastScanMode",
+        "name": "fast scan mode",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.filter",
+        "name": "folder/file filter",
+        "category": "sast",
+        "value": "",
+        "valuetype": "Block"
+      },
+      {
+        "key": "scan.config.sast.incremental",
+        "name": "incremental",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.extendedAnalysis",
+        "name": "LLM-based scanning",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.presetName",
+        "name": "presetName",
+        "category": "sast",
+        "value": "Checkmarx Default",
+        "valuetype": "RESTList"
+      },
+      {
+        "key": "scan.config.sast.recommendedExclusions",
+        "name": "recommended exclusions",
+        "category": "sast",
+        "value": "true",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.findingsAnalysis",
+        "name": "Findings Analysis",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      }
+    ],
+    "fixture-auth-service": [
+      {
+        "key": "scan.config.sast.fastScanMode",
+        "name": "fast scan mode",
+        "category": "sast",
+        "value": "true",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.filter",
+        "name": "folder/file filter",
+        "category": "sast",
+        "value": "!**/tests/**",
+        "valuetype": "Block"
+      },
+      {
+        "key": "scan.config.sast.incremental",
+        "name": "incremental",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.extendedAnalysis",
+        "name": "LLM-based scanning",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.presetName",
+        "name": "presetName",
+        "category": "sast",
+        "value": "ASA Premium",
+        "valuetype": "RESTList"
+      },
+      {
+        "key": "scan.config.sast.recommendedExclusions",
+        "name": "recommended exclusions",
+        "category": "sast",
+        "value": "true",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.findingsAnalysis",
+        "name": "Findings Analysis",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      }
+    ],
+    "fixture-legacy-billing": [
+      {
+        "key": "scan.config.sast.fastScanMode",
+        "name": "fast scan mode",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.filter",
+        "name": "folder/file filter",
+        "category": "sast",
+        "value": "",
+        "valuetype": "Block"
+      },
+      {
+        "key": "scan.config.sast.incremental",
+        "name": "incremental",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.extendedAnalysis",
+        "name": "LLM-based scanning",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.presetName",
+        "name": "presetName",
+        "category": "sast",
+        "value": "ASA Premium",
+        "valuetype": "RESTList"
+      },
+      {
+        "key": "scan.config.sast.recommendedExclusions",
+        "name": "recommended exclusions",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.findingsAnalysis",
+        "name": "Findings Analysis",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      }
+    ],
+    "fixture-search-api": [
+      {
+        "key": "scan.config.sast.fastScanMode",
+        "name": "fastScanMode",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.findingsAnalysis",
+        "name": "Findings Analysis",
+        "category": "sast",
+        "value": "true",
+        "valuetype": "Bool"
+      }
+    ],
+    "fixture-notifications_FA": [
+      {
+        "key": "scan.config.sast.fastScanMode",
+        "name": "fastScanMode",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      },
+      {
+        "key": "scan.config.sast.findingsAnalysis",
+        "name": "Findings Analysis",
+        "category": "sast",
+        "value": "true",
+        "valuetype": "Bool"
+      }
+    ],
+    "fixture-checkout_FA_BACKUP": [
+      {
+        "key": "scan.config.sast.findingsAnalysis",
+        "name": "Findings Analysis",
+        "category": "sast",
+        "value": "false",
+        "valuetype": "Bool"
+      }
+    ]
+  },
+  "tenant_config": [
+    {
+      "key": "scan.config.sast.fastScanMode",
+      "name": "fast scan mode",
+      "category": "sast",
+      "value": "false",
+      "valuetype": "Bool"
+    },
+    {
+      "key": "scan.config.sast.filter",
+      "name": "folder/file filter",
+      "category": "sast",
+      "value": "",
+      "valuetype": "Block"
+    },
+    {
+      "key": "scan.config.sast.incremental",
+      "name": "incremental",
+      "category": "sast",
+      "value": "false",
+      "valuetype": "Bool"
+    },
+    {
+      "key": "scan.config.sast.extendedAnalysis",
+      "name": "LLM-based scanning",
+      "category": "sast",
+      "value": "false",
+      "valuetype": "Bool"
+    },
+    {
+      "key": "scan.config.sast.presetName",
+      "name": "presetName",
+      "category": "sast",
+      "value": "ASA Premium",
+      "valuetype": "RESTList"
+    },
+    {
+      "key": "scan.config.sast.recommendedExclusions",
+      "name": "recommended exclusions",
+      "category": "sast",
+      "value": "true",
+      "valuetype": "Bool"
+    },
+    {
+      "key": "scan.config.sast.findingsAnalysis",
+      "name": "Findings Analysis",
+      "category": "sast",
+      "value": "false",
+      "valuetype": "Bool"
+    }
+  ],
+  "scms": [
+    {
+      "id": 1,
+      "type": "gitlab",
+      "repoBaseUrl": "https://gitlab.com",
+      "apiBaseUrl": "https://gitlab.com/api/v4",
+      "displayName": "GitLab",
+      "instanceName": null,
+      "onPrem": false
+    },
+    {
+      "id": 2,
+      "type": "github",
+      "repoBaseUrl": "https://github.com",
+      "apiBaseUrl": "https://api.github.com",
+      "displayName": "GitHub",
+      "instanceName": null,
+      "onPrem": false
+    },
+    {
+      "id": 3,
+      "type": "bitbucket",
+      "repoBaseUrl": "https://bitbucket.org",
+      "apiBaseUrl": "https://api.bitbucket.org/2.0",
+      "displayName": "Bitbucket",
+      "instanceName": null,
+      "onPrem": false
+    }
+  ],
+  "scm_projects": {
+    "1": [
+      "rmarquez/WebGoatNet",
+      "acme/gitlab-sidecar"
+    ],
+    "2": [
+      "acme/payments-api",
+      "acme/storefront-web",
+      "acme/internal-tools",
+      "acme/legacy-billing",
+      "acme/mobile-api"
+    ],
+    "3": [
+      "acme/auth-service"
+    ]
+  },
+  "protected_branches": {
+    "rmarquez/WebGoatNet": [
+      {
+        "pattern": "master",
+        "isDefaultBranch": true
+      },
+      {
+        "pattern": "release/*",
+        "isDefaultBranch": false
+      }
+    ],
+    "acme/storefront-web": [
+      {
+        "pattern": "main",
+        "isDefaultBranch": true
+      }
+    ]
+  },
+  "license_engines": [
+    "SAST",
+    "SCA",
+    "KICS",
+    "API Security",
+    "Containers",
+    "Secret Detection",
+    "AISC",
+    "Repository Health",
+    "Codebashing"
+  ],
+  "repo_settings": {
+    "sastScannerEnabled": {
+      "value": true,
+      "isEditable": true
+    },
+    "kicsScannerEnabled": {
+      "value": false,
+      "isEditable": true
+    },
+    "scaScannerEnabled": {
+      "value": false,
+      "isEditable": true
+    },
+    "apiSecScannerEnabled": {
+      "value": false,
+      "isEditable": true
+    },
+    "containerScannerEnabled": {
+      "value": false,
+      "isEditable": true
+    },
+    "secretsDetectionScannerEnabled": {
+      "value": false,
+      "isEditable": true
+    },
+    "aiscScannerEnabled": {
+      "value": false,
+      "isEditable": true
+    },
+    "ossfScoreCardScannerEnabled": {
+      "value": false,
+      "isEditable": false
+    },
+    "sastIncrementalScan": {
+      "value": true,
+      "isEditable": true
+    },
+    "scaAutoPrEnabled": {
+      "value": true,
+      "isEditable": true
+    }
+  },
+  "scan_handlers": {
+    "fixture-webhook-only": {
+      "GitHandler": {
+        "branch": "main",
+        "repo_url": "https://github.com/acme/webhook-only"
+      }
+    }
+  },
+  "scan_source_types": {
+    "fixture-webhook-only": [
+      "github",
+      "github"
+    ],
+    "fixture-docs-site": [
+      "zip",
+      "github"
+    ]
+  }
+}

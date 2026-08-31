@@ -1,0 +1,951 @@
+"""End-to-end through the real ASGI app, in demo mode.
+
+These are the checks that catch a broken template or a wrong context key -
+things the unit tests cannot see because they never render anything.
+"""
+
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+WEBGOATNET = "fixture-webgoatnet"
+#: A fixture project with no SAST scan at all - the one whose portfolio entry
+#: declares no severities. Present deliberately: the "no baseline" path must
+#: degrade into an explanation, not a stack trace.
+NO_SAST = "fixture-docs-site"
+NO_SAST_NAME = "acme/docs-site"
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("USE_FIXTURES", "true")
+    monkeypatch.setenv("CX_DB_PATH", str(tmp_path / "routes.db"))
+    # The fixture scan poller returns a terminal status after a couple of polls;
+    # the default eight-second wait between them is pure dead time here and adds
+    # minutes to the suite once several tests each drive a full run.
+    monkeypatch.setenv("POLL_INTERVAL_SECONDS", "0")
+
+    import config
+    import routes.deps as deps
+
+    fresh = config.Settings.from_env()
+    monkeypatch.setattr(config, "settings", fresh)
+    monkeypatch.setattr(deps, "settings", fresh)
+    deps.get_client.cache_clear()
+    deps.get_store.cache_clear()
+
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "settings", fresh)
+    with TestClient(app_module.app) as test_client:
+        yield test_client
+
+    deps.get_client.cache_clear()
+    deps.get_store.cache_clear()
+
+
+def wait_for_run(client, run_url: str, attempts: int = 60) -> dict:
+    for _ in range(attempts):
+        payload = client.get(f"{run_url}/status").json()
+        if payload["done"]:
+            return payload
+        time.sleep(0.1)
+    raise AssertionError(f"run did not finish: {payload}")
+
+
+def test_healthz_reports_demo_mode(client):
+    body = client.get("/healthz").json()
+    assert body == {"ok": True, "mode": "demo", "missing_credentials": []}
+
+
+def test_index_offers_to_build_before_any_snapshot_exists(client):
+    """An unbuilt portfolio must say so, not render an empty table or stall."""
+    page = client.get("/").text
+    assert "has not been built yet" in page
+    assert "rmarquez/WebGoatNet" not in page
+
+
+def test_index_lists_the_portfolio_after_a_refresh(client):
+    assert client.post("/portfolio/refresh", follow_redirects=False).status_code == 303
+    page = client.get("/").text
+    assert "rmarquez/WebGoatNet" in page
+    assert "Sample data" in page
+    assert "Counts as of" in page
+    # All three risk levels are represented by the fixture portfolio.
+    for level in ("risk-low", "risk-medium", "risk-high"):
+        assert level in page
+    # Top scorers are marked by the row tint alone - the badge that used to
+    # repeat it was removed as noise.
+    assert "tr class=\"flagged" in page
+
+
+def test_index_filters_by_name(client):
+    client.post("/portfolio/refresh")
+    assert "payments-api" not in client.get("/", params={"q": "webgoat"}).text
+
+
+def test_a_project_without_a_sast_baseline_is_unscored_not_zero(client):
+    client.post("/portfolio/refresh")
+    page = client.get("/").text
+    assert "No completed scan that ran the SAST engine." in page
+
+
+def test_retuning_weights_changes_the_ranking_without_refetching(client):
+    client.post("/portfolio/refresh")
+
+    def order(page: str) -> list[str]:
+        import re
+        return re.findall(r'/projects/(fixture-[a-z-]+)"', page)
+
+    before = order(client.get("/").text)
+    # Score on Low only: storefront has by far the most Low findings.
+    client.post(
+        "/portfolio/settings",
+        data={
+            "weight_high": 0, "weight_medium": 0, "weight_low": 1,
+            "risk_low_max_scans": 2, "risk_low_max_branches": 1,
+            "risk_high_min_scans": 10, "risk_high_min_branches": 4,
+            "flag_top_n": 5, "rebase_stale_days": 90,
+        },
+    )
+    after_page = client.get("/").text
+    assert order(after_page) != before
+    assert after_page.index("storefront") < after_page.index("WebGoatNet")
+    # The "Customised" badge moved to the settings tab along with the panel.
+    assert "Customised" in client.get("/settings").text
+
+    client.post("/portfolio/settings/reset")
+    assert order(client.get("/").text) == before
+
+
+def test_the_portfolio_cannot_be_built_by_a_get(client):
+    assert client.get("/portfolio/refresh").status_code == 405
+
+
+def test_project_page_shows_the_sast_only_baseline(client):
+    page = client.get(f"/projects/{WEBGOATNET}").text
+    # The real WebGoatNet SAST baseline: 63/5/33/27, 128 total, 65 eligible.
+    assert ">128<" in page or "<strong>128</strong>" in page
+    assert ">65<" in page
+    assert "Critical is never analysed" in page
+
+
+def test_a_project_without_a_sast_scan_explains_itself(client):
+    page = client.get(f"/projects/{NO_SAST}")
+    assert page.status_code == 200
+    assert "no completed scan that ran the SAST engine" in page.text
+    # And offers no way to start a run that could not produce a comparison.
+    assert f"Create {NO_SAST_NAME}_FA" not in page.text
+
+
+def test_a_run_must_be_confirmed(client):
+    response = client.post(
+        "/runs", data={"project_id": WEBGOATNET}, follow_redirects=False
+    )
+    assert response.status_code == 400
+
+
+def test_a_run_cannot_be_started_by_a_get(client):
+    """`GET /runs` lists history. It must not create one.
+
+    This used to assert a 405, before the listing existed. The rule it guards is
+    unchanged - only `POST /runs` may spend a scan - so it is now asserted
+    directly rather than through the absence of the route.
+    """
+    from routes.deps import get_store
+
+    assert client.get("/runs").status_code == 200
+    assert get_store().list_runs() == []
+
+
+def test_full_run_renders_the_comparison(client):
+    response = client.post(
+        "/runs",
+        data={"project_id": WEBGOATNET, "minutes_per_finding": "12", "confirm": "yes"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    run_url = response.headers["location"]
+
+    assert wait_for_run(client, run_url)["status"] == "completed"
+
+    page = client.get(run_url).text
+    assert "38.5" in page                      # 25 of 65 eligible
+    assert "Sample data — not measured" in page
+    assert "not eligible for Findings Analysis" in page
+    assert "Stored XSS" in page                # query breakdown
+    assert "CWE-209" in page                   # cwe breakdown
+    assert "5.0" in page                       # 25 findings x 12 min = 5 hours
+    assert "15.6" in page                      # NEW share of the original baseline
+
+
+def test_unknown_run_is_a_404(client):
+    assert client.get("/runs/deadbeef").status_code == 404
+
+
+def test_an_in_flight_run_is_not_duplicated(client, tmp_path):
+    """The confirmation dialog must not be submittable twice into two scans."""
+    from routes.deps import get_store
+    from store import RUNNING
+
+    store = get_store()
+    run_id = store.create_run(
+        source_project_id=WEBGOATNET,
+        source_project_name="rmarquez/WebGoatNet",
+        baseline_scan_id=None,
+        baseline_branch=None,
+        minutes_per_finding=10,
+        status=RUNNING,
+    )
+    response = client.post(
+        "/runs",
+        data={"project_id": WEBGOATNET, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    assert response.headers["location"] == f"/runs/{run_id}"
+
+
+# --- Phase 3: tabs, settings tab, run list, re-base indicator ----------------
+
+
+def test_every_page_carries_the_tab_bar(client):
+    for path in ("/", "/runs", "/settings"):
+        page = client.get(path).text
+        assert 'aria-label="Main"' in page, path
+        assert 'href="/settings"' in page, path
+
+
+def test_the_active_tab_is_marked_on_each_page(client):
+    assert 'class="tab tab-active"' in client.get("/").text
+    assert '<a href="/runs" class="tab tab-active"' in client.get("/runs").text
+    assert "tab tab-icon tab-active" in client.get("/settings").text
+
+
+def test_a_project_page_belongs_to_the_projects_tab(client):
+    """A path the tab does not share must still light the right tab."""
+    page = client.get(f"/projects/{WEBGOATNET}").text
+    assert '<a href="/" class="tab tab-active"' in page
+
+
+def test_the_settings_panel_left_the_projects_page(client):
+    client.post("/portfolio/refresh")
+    page = client.get("/").text
+    assert 'action="/portfolio/settings"' not in page
+    assert 'action="/portfolio/settings"' in client.get("/settings").text
+
+
+def test_the_run_list_left_the_projects_page(client):
+    client.post("/portfolio/refresh")
+    assert "Recent runs</h2>" not in client.get("/").text
+    assert "Recent runs</h2>" in client.get("/runs").text
+
+
+def test_an_empty_run_list_explains_itself(client):
+    assert "No runs yet." in client.get("/runs").text
+
+
+def test_saving_settings_returns_to_the_settings_tab(client):
+    response = client.post(
+        "/portfolio/settings",
+        data={
+            "weight_high": 3, "weight_medium": 2, "weight_low": 1,
+            "risk_low_max_scans": 2, "risk_low_max_branches": 1,
+            "risk_high_min_scans": 10, "risk_high_min_branches": 4,
+            "flag_top_n": 5, "rebase_stale_days": 45,
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/settings"
+    assert 'value="45"' in client.get("/settings").text
+
+    reset = client.post("/portfolio/settings/reset", follow_redirects=False)
+    assert reset.headers["location"] == "/settings"
+
+
+def test_a_stale_baseline_is_flagged_on_the_projects_list(client):
+    client.post("/portfolio/refresh")
+    page = client.get("/").text
+    assert "badge-rebase" in page
+    assert "recommended for re-base" in page
+    # And a project scanned recently is not flagged.
+    assert "stale-baseline" in page
+
+
+def test_the_rebase_threshold_is_tunable(client):
+    """Raising the threshold past every fixture's age clears the flags."""
+    client.post("/portfolio/refresh")
+    assert "badge-rebase" in client.get("/").text
+    client.post(
+        "/portfolio/settings",
+        data={
+            "weight_high": 3, "weight_medium": 2, "weight_low": 1,
+            "risk_low_max_scans": 2, "risk_low_max_branches": 1,
+            "risk_high_min_scans": 10, "risk_high_min_branches": 4,
+            "flag_top_n": 5, "rebase_stale_days": 3650,
+        },
+    )
+    assert "badge-rebase" not in client.get("/").text
+
+
+def test_a_stale_project_says_so_on_its_own_page(client):
+    page = client.get("/projects/fixture-legacy-billing").text
+    assert "flagged for re-basing" in page
+
+
+def test_the_comparison_reports_parameter_parity(client):
+    response = client.post(
+        "/runs",
+        data={"project_id": WEBGOATNET, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    run_url = response.headers["location"]
+    assert wait_for_run(client, run_url)["status"] == "completed"
+
+    page = client.get(run_url).text
+    assert "7 of 7 SAST parameters as expected" in page
+    assert "needs review" not in page
+
+
+def test_a_parameter_mismatch_marks_the_comparison_unreliable(client):
+    """A confound must be surfaced, not silently absorbed into the headline.
+
+    `fixture-auth-service` overrides fast scan mode and a folder filter. Neither
+    is carried onto a fresh copy and neither is overridden by the scan payload,
+    so the two projects genuinely scan differently.
+    """
+    response = client.post(
+        "/runs",
+        data={"project_id": "fixture-auth-service", "confirm": "yes"},
+        follow_redirects=False,
+    )
+    run_url = response.headers["location"]
+    assert wait_for_run(client, run_url)["status"] == "completed"
+
+    page = client.get(run_url).text
+    assert "This comparison needs review" in page
+    assert "Fast scan mode" in page
+    assert "Folder/file filter" in page
+    # The expected difference is never listed as a problem.
+    assert "<td>Findings Analysis</td>" not in page
+
+
+# --- Phase 3c: [BETA] re-onboarding -----------------------------------------
+
+
+def completed_run(client) -> str:
+    """A finished comparison, which is the only thing re-onboarding hangs off."""
+    response = client.post(
+        "/runs",
+        data={"project_id": WEBGOATNET, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    run_url = response.headers["location"]
+    assert wait_for_run(client, run_url)["status"] == "completed"
+    return run_url
+
+
+def test_the_comparison_offers_a_re_onboarding_preview(client):
+    page = client.get(completed_run(client)).text
+    assert "Preview re-onboarding" in page
+    assert "Beta" in page
+    assert "never deleted" in page
+
+
+def test_the_preview_is_reachable_and_writes_nothing(client):
+    from routes.deps import get_client
+
+    page = client.get(f"{completed_run(client)}/reonboard")
+    assert page.status_code == 200
+    assert "What would happen" in page.text
+    assert get_client()._disconnected == set()
+
+
+def test_the_preview_names_both_calls_and_both_project_ids(client):
+    page = client.get(f"{completed_run(client)}/reonboard").text
+    assert "/disconnect" in page
+    assert "/api/repos-manager/project-conversion" in page
+    assert "fixture-webgoatnet" in page          # the base
+    assert "WebGoatNet_FA" in page               # the candidate
+
+
+def test_the_preview_shows_the_filtered_scanner_list(client):
+    """The fixture baseline reports containers/microengines; neither may appear."""
+    page = client.get(f"{completed_run(client)}/reonboard").text
+    assert "sast, sca, kics" in page
+    assert "containers" not in page
+    assert "microengines" not in page
+
+
+def test_re_onboarding_cannot_be_started_by_a_get(client):
+    run_url = completed_run(client)
+    from routes.deps import get_client
+
+    client.get(f"{run_url}/reonboard")
+    assert get_client()._disconnected == set()
+
+
+def test_re_onboarding_must_be_confirmed(client):
+    run_url = completed_run(client)
+    response = client.post(f"{run_url}/reonboard", data={"plan_digest": "x"})
+    assert response.status_code == 400
+    assert "confirmed explicitly" in response.json()["detail"]
+
+
+def test_re_onboarding_requires_the_digest_of_a_reviewed_plan(client):
+    run_url = completed_run(client)
+    response = client.post(f"{run_url}/reonboard", data={"confirm": "yes"})
+    assert response.status_code == 400
+    assert "digest" in response.json()["detail"]
+
+
+def test_a_stale_digest_changes_nothing_in_the_tenant(client):
+    from routes.deps import get_client
+
+    run_url = completed_run(client)
+    client.post(
+        f"{run_url}/reonboard",
+        data={"confirm": "yes", "plan_digest": "0000000000000000"},
+    )
+    page = client.get(f"{run_url}/reonboard").text
+    assert "no longer matches" in page
+    assert get_client()._disconnected == set()
+
+
+def test_re_onboarding_is_unreachable_without_a_comparison(client):
+    """The 3c gate: only from a completed run that carries a parity check."""
+    from routes.deps import get_store
+    from store import RUNNING
+
+    run_id = get_store().create_run(
+        source_project_id=WEBGOATNET, source_project_name="rmarquez/WebGoatNet",
+        baseline_scan_id=None, baseline_branch=None, minutes_per_finding=10,
+        status=RUNNING,
+    )
+    assert client.get(f"/runs/{run_id}/reonboard").status_code == 400
+    response = client.post(
+        f"/runs/{run_id}/reonboard", data={"confirm": "yes", "plan_digest": "x"}
+    )
+    assert response.status_code == 400
+
+
+def test_a_confirmed_re_onboarding_disconnects_the_base_and_converts_the_copy(client):
+    import re
+
+    from routes.deps import get_client
+
+    run_url = completed_run(client)
+    # The digest the preview actually rendered into its confirm form - the same
+    # value a person clicking the button would submit.
+    preview = client.get(f"{run_url}/reonboard").text
+    digest = re.search(r'name="plan_digest" value="([a-f0-9]+)"', preview).group(1)
+
+    response = client.post(
+        f"{run_url}/reonboard",
+        data={"confirm": "yes", "plan_digest": digest},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    for _ in range(60):
+        payload = client.get(f"{run_url}/reonboard/status").json()
+        if payload["done"]:
+            break
+        time.sleep(0.1)
+    assert payload["status"] == "completed", payload
+
+    cx = get_client()
+    assert cx._disconnected == {WEBGOATNET}
+    assert cx._converted                      # the copy was converted
+    converted = list(cx._converted.values())[0]
+    assert converted["cxProjectId"] == "fixture-rmarquez/WebGoatNet_FA"
+
+    # The base still exists - renamed, disconnected, never deleted - and the
+    # copy has taken over the name it released.
+    assert cx.get_project(WEBGOATNET)["name"] == "rmarquez/WebGoatNet_FA_BACKUP"
+    assert cx.get_project("fixture-rmarquez/WebGoatNet_FA")["name"] == (
+        "rmarquez/WebGoatNet"
+    )
+
+    page = client.get(f"{run_url}/reonboard").text
+    assert "Re-onboarding complete" in page
+    assert "manual project" in page
+    assert "WebGoatNet_FA_BACKUP" in page
+
+
+def test_the_last_connected_project_is_refused_in_the_ui(client):
+    """auth-service is the only project on its integration in the fixture."""
+    response = client.post(
+        "/runs",
+        data={"project_id": "fixture-auth-service", "confirm": "yes"},
+        follow_redirects=False,
+    )
+    run_url = response.headers["location"]
+    assert wait_for_run(client, run_url)["status"] == "completed"
+
+    page = client.get(f"{run_url}/reonboard").text
+    assert "cannot proceed" in page
+    assert "only project connected" in page
+    # And no confirm button is offered for a plan that cannot run.
+    assert 'name="confirm"' not in page
+
+
+def test_a_completed_re_onboarding_does_not_re_preview_itself(client, monkeypatch):
+    """Regression: the outcome page contradicted itself on a live tenant.
+
+    Re-previewing after execution reads a tenant the re-onboarding has already
+    changed - the base is now a manual project, so it no longer counts as
+    connected and its protected branches are gone. The page rendered
+    "Re-onboarding complete" directly above a freshly computed
+    "This re-onboarding cannot proceed".
+
+    Asserted as "the tenant is not read again" rather than through fixture data,
+    because what went wrong is the re-read itself; which particular refusal it
+    produces depends on the tenant.
+    """
+    import re
+
+    from cx import reonboard as reonboard_module
+
+    run_url = completed_run(client)
+    preview = client.get(f"{run_url}/reonboard").text
+    digest = re.search(r'name="plan_digest" value="([a-f0-9]+)"', preview).group(1)
+    client.post(f"{run_url}/reonboard", data={"confirm": "yes", "plan_digest": digest})
+
+    for _ in range(60):
+        payload = client.get(f"{run_url}/reonboard/status").json()
+        if payload["done"]:
+            break
+        time.sleep(0.1)
+    assert payload["status"] == "completed"
+
+    calls = []
+    real_preview = reonboard_module.preview
+    def counting_preview(*args, **kwargs):
+        calls.append(1)
+        return real_preview(*args, **kwargs)
+    monkeypatch.setattr(reonboard_module, "preview", counting_preview)
+
+    page = client.get(f"{run_url}/reonboard").text
+    assert calls == [], "a settled re-onboarding must not re-read the tenant"
+
+    assert "Re-onboarding complete" in page
+    assert "cannot proceed" not in page
+    # Nothing left to decide, so no confirm button.
+    assert 'name="confirm"' not in page
+    # The plan that was executed is still shown, as a record of what was done.
+    assert "What was done" in page
+    assert "/api/repos-manager/project-conversion" in page
+
+
+# --- Phase 3.1: projects that are no longer candidates ------------------------
+
+BACKUP = "fixture-checkout_FA_BACKUP"
+BACKUP_NAME = "acme/checkout_FA_BACKUP"
+FA_ENABLED = "fixture-search-api"
+FA_ENABLED_NAME = "acme/search-api"
+#: A base project whose `<name>_FA` copy already exists in the fixture tenant.
+ANALYSED = "fixture-notifications"
+ANALYSED_NAME = "acme/notifications"
+
+
+def test_a_converted_original_is_not_listed(client):
+    client.post("/portfolio/refresh")
+    assert BACKUP_NAME not in client.get("/").text
+
+
+def test_a_project_already_running_the_capability_is_not_listed(client):
+    client.post("/portfolio/refresh")
+    assert FA_ENABLED_NAME not in client.get("/").text
+
+
+def test_the_summary_counts_describe_only_what_is_listed(client):
+    """"N of M projects" must not count projects the table refuses to show."""
+    import routes.deps as deps
+
+    tenant_total = len(deps.get_client().get_projects())
+    client.post("/portfolio/refresh")
+    page = client.get("/").text
+
+    listed = page.count('<td class="project-name">')
+    assert listed < tenant_total
+    # The summary bar's denominator is the visible set, not the tenant.
+    assert f"of {listed} projects have a SAST baseline" in page
+    assert f"of {tenant_total} projects have a SAST baseline" not in page
+
+
+def test_an_excluded_project_cannot_be_found_by_searching_for_it(client):
+    client.post("/portfolio/refresh")
+    page = client.get("/", params={"q": "checkout"}).text
+    assert BACKUP_NAME not in page
+
+
+def test_a_converted_original_is_blocked_at_its_own_url(client):
+    page = client.get(f"/projects/{BACKUP}")
+    assert page.status_code == 200
+    assert "already converted" in page.text
+    assert "Test Findings Analysis" not in page.text
+
+
+def test_a_project_already_running_the_capability_is_blocked_at_its_url(client):
+    page = client.get(f"/projects/{FA_ENABLED}")
+    assert page.status_code == 200
+    assert "Findings Analysis already enabled" in page.text
+    assert "Test Findings Analysis" not in page.text
+
+
+def test_a_project_with_an_existing_copy_opens_its_run(client):
+    response = client.post(
+        "/runs",
+        data={"project_id": ANALYSED, "minutes_per_finding": "10", "confirm": "yes"},
+        follow_redirects=False,
+    )
+    # The fixture tenant already holds acme/notifications_FA, so the run itself
+    # is refused - that is the guard under test on the write route.
+    assert response.status_code == 400
+    assert "acme/notifications_FA" in response.json()["detail"]
+
+
+def test_a_project_with_a_copy_but_no_run_explains_itself(client):
+    page = client.get(f"/projects/{ANALYSED}", follow_redirects=False)
+    assert page.status_code == 200
+    assert "acme/notifications_FA" in page.text
+    assert "Test Findings Analysis" not in page.text
+
+
+def test_a_project_with_a_copy_redirects_to_the_run_that_made_it(client):
+    import routes.deps as deps
+
+    store = deps.get_store()
+    run_id = store.create_run(
+        source_project_id=ANALYSED,
+        source_project_name=ANALYSED_NAME,
+        baseline_scan_id=None,
+        baseline_branch=None,
+        minutes_per_finding=10,
+        status="completed",
+    )
+    response = client.get(f"/projects/{ANALYSED}", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/runs/{run_id}"
+
+
+def test_a_completed_run_is_preferred_over_a_more_recent_failure(client):
+    import routes.deps as deps
+
+    store = deps.get_store()
+    completed = store.create_run(
+        source_project_id=ANALYSED, source_project_name=ANALYSED_NAME,
+        baseline_scan_id=None, baseline_branch=None,
+        minutes_per_finding=10, status="completed",
+    )
+    store.create_run(
+        source_project_id=ANALYSED, source_project_name=ANALYSED_NAME,
+        baseline_scan_id=None, baseline_branch=None,
+        minutes_per_finding=10, status="failed",
+    )
+    response = client.get(f"/projects/{ANALYSED}", follow_redirects=False)
+    assert response.headers["location"] == f"/runs/{completed}"
+
+
+def test_a_project_whose_every_run_failed_still_leads_to_one(client):
+    import routes.deps as deps
+
+    failed = deps.get_store().create_run(
+        source_project_id=ANALYSED, source_project_name=ANALYSED_NAME,
+        baseline_scan_id=None, baseline_branch=None,
+        minutes_per_finding=10, status="failed",
+    )
+    response = client.get(f"/projects/{ANALYSED}", follow_redirects=False)
+    assert response.headers["location"] == f"/runs/{failed}"
+
+
+def test_a_re_onboarded_project_is_offered_no_further_actions(client):
+    import routes.deps as deps
+
+    response = client.post(
+        "/runs",
+        data={"project_id": WEBGOATNET, "minutes_per_finding": "10", "confirm": "yes"},
+        follow_redirects=False,
+    )
+    run_url = response.headers["location"]
+    wait_for_run(client, run_url)
+
+    page = client.get(run_url).text
+    assert "Preview re-onboarding" in page
+    assert "Run another comparison" in page
+
+    deps.get_store().update_run(run_url.rsplit("/", 1)[-1], reonboard_status="completed")
+    page = client.get(run_url).text
+    assert "Preview re-onboarding" not in page
+    assert "Run another comparison" not in page
+    assert "See what was done" in page
+
+
+# --- the post-conversion rescan, end to end through the app ------------------
+
+
+def reonboarded_run(client):
+    """Drive a full run and a confirmed re-onboarding. Returns the run URL."""
+    import re
+
+    run_url = completed_run(client)
+    preview = client.get(f"{run_url}/reonboard").text
+    digest = re.search(r'name="plan_digest" value="([a-f0-9]+)"', preview).group(1)
+    client.post(
+        f"{run_url}/reonboard",
+        data={"confirm": "yes", "plan_digest": digest},
+        follow_redirects=False,
+    )
+    for _ in range(60):
+        payload = client.get(f"{run_url}/reonboard/status").json()
+        if payload["done"]:
+            break
+        time.sleep(0.1)
+    assert payload["status"] == "completed", payload
+    return run_url
+
+
+def test_the_preview_discloses_the_two_follow_up_calls(client):
+    page = client.get(f"{completed_run(client)}/reonboard").text
+    assert "/api/repos-manager/repo/{repoId}" in page
+    assert "/api/scans/rescan" in page
+    assert "Licensed for" in page
+
+
+def test_the_live_project_is_rescanned_after_a_re_onboarding(client):
+    from routes.deps import get_client
+
+    run_url = reonboarded_run(client)
+    cx = get_client()
+    assert cx._rescans == ["fixture-rmarquez/WebGoatNet_FA"]
+
+    page = client.get(f"{run_url}/reonboard").text
+    assert "Post-conversion scan" in page
+    assert "fixture-rescan-1" in page
+
+
+def test_a_licensed_scanner_the_repo_refuses_is_not_forced_on(client):
+    """The fixture repo declares the scorecard non-editable, as a real one does."""
+    from routes.deps import get_client
+
+    reonboarded_run(client)
+    cx = get_client()
+    settings = list(cx._repo_settings.values())[0]
+    assert settings["kicsScannerEnabled"]["value"] is True
+    assert settings["scaScannerEnabled"]["value"] is True
+    assert settings["ossfScoreCardScannerEnabled"]["value"] is False
+    assert settings["sastIncrementalScan"]["value"] is False
+    assert settings["scaAutoPrEnabled"]["value"] is False
+
+
+def test_a_failed_rescan_is_a_warning_not_a_failed_re_onboarding(client):
+    from cx.errors import CxApiError
+    from routes.deps import get_client
+
+    cx = get_client()
+
+    def refuse(project_id):
+        raise CxApiError("a scan is already running for this project")
+
+    cx.rescan_project = refuse
+
+    run_url = reonboarded_run(client)
+    page = client.get(f"{run_url}/reonboard").text
+    assert "Re-onboarding complete" in page
+    assert "already running" in page
+    assert "best-effort follow-up" in page
+
+
+def test_an_analysed_project_is_marked_in_the_list(client):
+    """The base of an existing _FA pair says so, without opening it."""
+    client.post("/portfolio/refresh")
+    page = client.get("/").text
+    assert "badge-analysed" in page
+    row = [line for line in page.splitlines() if ANALYSED_NAME in line]
+    assert row, "the analysed project should still be listed"
+
+
+def test_an_unanalysed_project_carries_no_analysed_badge(client):
+    client.post("/portfolio/refresh")
+    page = client.get("/", params={"q": "storefront"}).text
+    assert "badge-analysed" not in page
+
+
+# --- manual projects take the rename-only re-onboarding path ------------------
+
+MANUAL = "fixture-legacy-uploader"
+MANUAL_NAME = "acme/legacy-uploader"
+WEBHOOKED = "fixture-webhook-only"
+
+
+def completed_run_for(client, project_id: str) -> str:
+    response = client.post(
+        "/runs",
+        data={"project_id": project_id, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    run_url = response.headers["location"]
+    assert wait_for_run(client, run_url)["status"] == "completed"
+    return run_url
+
+
+def test_a_manual_project_previews_the_rename_only_path(client):
+    page = client.get(f"{completed_run_for(client, MANUAL)}/reonboard").text
+
+    assert "connected to no repository" in page
+    assert "/api/scans/rescan" in page
+    # The two calls that move a repository must be shown as skipped, not offered.
+    assert "Manual project" in page
+
+
+def test_the_manual_preview_offers_no_conversion_body(client):
+    """There is no conversion, so there is no request body to disclose."""
+    page = client.get(f"{completed_run_for(client, MANUAL)}/reonboard").text
+
+    assert "The exact request body" not in page
+    assert "Protected branches" not in page
+    assert "Organisation" not in page
+
+
+def test_the_manual_confirm_button_says_rename_not_disconnect(client):
+    page = client.get(f"{completed_run_for(client, MANUAL)}/reonboard").text
+
+    assert f"Rename {MANUAL_NAME}_FA to {MANUAL_NAME}" in page
+    assert "Disconnect" not in page
+
+
+def test_a_stale_repo_url_does_not_take_a_project_off_the_manual_path(client):
+    """The fixture carries one, exactly as `VulnPascal` does on the tenant."""
+    from routes.deps import get_client
+
+    project = get_client().get_project(MANUAL)
+    assert project["repoUrl"]
+    assert not project.get("repoId")
+
+    page = client.get(f"{completed_run_for(client, MANUAL)}/reonboard").text
+    assert "connected to no repository" in page
+
+
+def test_a_webhook_driven_project_is_still_refused(client):
+    """No repository record, but its scans are cloned. Must not be renamed."""
+    page = client.get(f"{completed_run_for(client, WEBHOOKED)}/reonboard").text
+
+    assert "cannot proceed" in page
+    assert "connected to no repository" not in page
+
+
+def test_a_confirmed_manual_re_onboarding_renames_and_rescans(client):
+    import re
+
+    from routes.deps import get_client
+
+    run_url = completed_run_for(client, MANUAL)
+    preview = client.get(f"{run_url}/reonboard").text
+    digest = re.search(r'name="plan_digest" value="([a-f0-9]+)"', preview).group(1)
+    client.post(f"{run_url}/reonboard", data={"confirm": "yes", "plan_digest": digest})
+
+    for _ in range(60):
+        payload = client.get(f"{run_url}/reonboard/status").json()
+        if payload["done"]:
+            break
+        time.sleep(0.1)
+    assert payload["status"] == "completed"
+
+    fixture = get_client()
+    names = {p["id"]: p["name"] for p in fixture.get_projects()}
+    assert names[MANUAL] == f"{MANUAL_NAME}_FA_BACKUP"
+    assert names[f"fixture-{MANUAL_NAME}_FA"] == MANUAL_NAME
+    # Nothing was disconnected and nothing was converted.
+    assert fixture._disconnected == set()
+    assert fixture._conversions == {}
+    assert fixture._rescans == [f"fixture-{MANUAL_NAME}_FA"]
+
+    page = client.get(f"{run_url}/reonboard").text
+    assert "Re-onboarding complete" in page
+    assert "Neither project is connected to a repository" in page
+
+
+def test_a_failed_manual_re_onboarding_can_be_resumed(client, monkeypatch):
+    """A failed SCM run is frozen; this one is not, and the plan says why.
+
+    Two renames leave nothing pointing anywhere unexpected - the live name is
+    simply unclaimed - so re-offering the confirmation is safe in a way that
+    re-offering a half-applied conversion would not be.
+    """
+    import re
+
+    from cx.errors import CxError
+    from routes.deps import get_client
+
+    run_url = completed_run_for(client, MANUAL)
+    fixture = get_client()
+    fa_id = f"fixture-{MANUAL_NAME}_FA"
+
+    real_rename = fixture.rename_project
+
+    def fail_the_second(project_id, name):
+        if project_id == fa_id:
+            raise CxError("409 name already in use")
+        return real_rename(project_id, name)
+
+    monkeypatch.setattr(fixture, "rename_project", fail_the_second)
+
+    preview = client.get(f"{run_url}/reonboard").text
+    digest = re.search(r'name="plan_digest" value="([a-f0-9]+)"', preview).group(1)
+    client.post(f"{run_url}/reonboard", data={"confirm": "yes", "plan_digest": digest})
+    for _ in range(60):
+        if client.get(f"{run_url}/reonboard/status").json()["done"]:
+            break
+        time.sleep(0.1)
+    assert client.get(f"{run_url}/reonboard/status").json()["status"] == "failed"
+
+    # The base gave up its name; the live name is unclaimed.
+    names = {p["id"]: p["name"] for p in fixture.get_projects()}
+    assert names[MANUAL] == f"{MANUAL_NAME}_FA_BACKUP"
+    assert names[fa_id] == f"{MANUAL_NAME}_FA"
+
+    # The failure page offers the confirmation again, with the same digest.
+    monkeypatch.setattr(fixture, "rename_project", real_rename)
+    page = client.get(f"{run_url}/reonboard").text
+    assert "Re-onboarding failed" in page
+    assert "resume" in page
+    resumed = re.search(r'name="plan_digest" value="([a-f0-9]+)"', page).group(1)
+    assert resumed == digest
+
+    client.post(f"{run_url}/reonboard", data={"confirm": "yes", "plan_digest": resumed})
+    for _ in range(60):
+        if client.get(f"{run_url}/reonboard/status").json()["done"]:
+            break
+        time.sleep(0.1)
+    assert client.get(f"{run_url}/reonboard/status").json()["status"] == "completed"
+    assert {p["id"]: p["name"] for p in fixture.get_projects()}[fa_id] == MANUAL_NAME
+
+
+def test_a_failed_scm_re_onboarding_is_still_frozen(client, monkeypatch):
+    """The distinction the resume rests on: a conversion must not be re-offered."""
+    import re
+
+    from cx.errors import CxError
+    from routes.deps import get_client
+
+    run_url = completed_run(client)
+    fixture = get_client()
+    monkeypatch.setattr(
+        fixture, "convert_project",
+        lambda payload: (_ for _ in ()).throw(CxError("conversion refused")),
+    )
+
+    preview = client.get(f"{run_url}/reonboard").text
+    digest = re.search(r'name="plan_digest" value="([a-f0-9]+)"', preview).group(1)
+    client.post(f"{run_url}/reonboard", data={"confirm": "yes", "plan_digest": digest})
+    for _ in range(60):
+        if client.get(f"{run_url}/reonboard/status").json()["done"]:
+            break
+        time.sleep(0.1)
+
+    page = client.get(f"{run_url}/reonboard").text
+    assert "Re-onboarding failed" in page
+    assert 'name="plan_digest"' not in page
+    assert "Nothing was retried automatically" in page

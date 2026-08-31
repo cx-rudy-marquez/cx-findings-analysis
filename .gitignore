@@ -1,0 +1,24 @@
+# Credentials. CX_CLIENT_SECRET is a long-lived OAuth refresh token - the whole
+# of your tenant access - so this line is the important one in this file.
+.env
+
+# Run history and cached portfolio snapshots, measured against a real tenant:
+# project names, scan ids, finding counts, re-onboarding plans.
+data/
+*.db
+
+# HAR captures carry bearer tokens and presigned upload URLs verbatim.
+*.har
+
+# Planning documents. Internal, and superseded by README.md.
+GOAL*.md
+
+# Not part of the application: a Checkmarx engine log and another tool's store.
+engineLog.txt
+ruvector.db
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.DS_Store
