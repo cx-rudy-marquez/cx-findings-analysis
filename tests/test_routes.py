@@ -17,14 +17,14 @@ NO_SAST = "fixture-docs-site"
 NO_SAST_NAME = "acme/docs-site"
 
 
-@pytest.fixture
-def client(tmp_path, monkeypatch):
+def _client(tmp_path, monkeypatch, reonboard: bool):
     monkeypatch.setenv("USE_FIXTURES", "true")
     monkeypatch.setenv("CX_DB_PATH", str(tmp_path / "routes.db"))
     # The fixture scan poller returns a terminal status after a couple of polls;
     # the default eight-second wait between them is pure dead time here and adds
     # minutes to the suite once several tests each drive a full run.
     monkeypatch.setenv("POLL_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("REONBOARD", "true" if reonboard else "false")
 
     import config
     import routes.deps as deps
@@ -43,6 +43,23 @@ def client(tmp_path, monkeypatch):
 
     deps.get_client.cache_clear()
     deps.get_store.cache_clear()
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    """A deployment with the re-onboarding beta switched on.
+
+    The default for the suite because most of what is tested here only exists
+    behind the flag. That every one of those tests 404s under `client_no_beta`
+    is the assertion that the flag actually gates them.
+    """
+    yield from _client(tmp_path, monkeypatch, reonboard=True)
+
+
+@pytest.fixture
+def client_no_beta(tmp_path, monkeypatch):
+    """A default deployment: REONBOARD unset, so re-onboarding is off."""
+    yield from _client(tmp_path, monkeypatch, reonboard=False)
 
 
 def wait_for_run(client, run_url: str, attempts: int = 60) -> dict:
@@ -174,10 +191,12 @@ def test_full_run_renders_the_comparison(client):
     assert "38.5" in page                      # 25 of 65 eligible
     assert "Sample data — not measured" in page
     assert "not eligible for Findings Analysis" in page
-    assert "Stored XSS" in page                # query breakdown
-    assert "CWE-209" in page                   # cwe breakdown
     assert "5.0" in page                       # 25 findings x 12 min = 5 hours
     assert "15.6" in page                      # NEW share of the original baseline
+
+    # The breakdowns moved into tabs; the data behind them is unchanged.
+    assert "Stored XSS" in client.get(run_url, params={"view": "query"}).text
+    assert "CWE-209" in client.get(run_url, params={"view": "cwe"}).text
 
 
 def test_unknown_run_is_a_404(client):
@@ -303,9 +322,20 @@ def test_the_comparison_reports_parameter_parity(client):
     run_url = response.headers["location"]
     assert wait_for_run(client, run_url)["status"] == "completed"
 
+    from routes.deps import get_store
+    run = get_store().get_run(run_url.rsplit("/", 1)[-1])
+
     page = client.get(run_url).text
-    assert "7 of 7 SAST parameters as expected" in page
+    assert "Matches baseline 7/7" in page
     assert "needs review" not in page
+    # And the panel shows the parameters it is vouching for, rather than only
+    # asserting that they matched.
+    assert "Scan parameters" in page
+    for label in ("Fast scan mode", "Folder/file filter", "Incremental",
+                  "LLM-based scanning", "Preset", "Recommended exclusions",
+                  "Findings Analysis"):
+        assert f"<td>{label}</td>" in page
+    assert run["baseline_scan_id"] in page
 
 
 def test_a_parameter_mismatch_marks_the_comparison_unreliable(client):
@@ -327,8 +357,11 @@ def test_a_parameter_mismatch_marks_the_comparison_unreliable(client):
     assert "This comparison needs review" in page
     assert "Fast scan mode" in page
     assert "Folder/file filter" in page
-    # The expected difference is never listed as a problem.
-    assert "<td>Findings Analysis</td>" not in page
+    # The panel lists every parameter now, so the check is no longer that the
+    # expected difference is absent - it is that it is not reported as a fault.
+    assert "<td>Findings Analysis</td>" in page
+    assert "expected to differ" in page
+    assert page.count("parity-flag-off") == 2      # the two real mismatches
 
 
 # --- Phase 3c: [BETA] re-onboarding -----------------------------------------
@@ -347,7 +380,7 @@ def completed_run(client) -> str:
 
 
 def test_the_comparison_offers_a_re_onboarding_preview(client):
-    page = client.get(completed_run(client)).text
+    page = client.get(completed_run(client), params={"view": "reonboard"}).text
     assert "Preview re-onboarding" in page
     assert "Beta" in page
     assert "never deleted" in page
@@ -672,14 +705,14 @@ def test_a_re_onboarded_project_is_offered_no_further_actions(client):
     run_url = response.headers["location"]
     wait_for_run(client, run_url)
 
-    page = client.get(run_url).text
+    page = client.get(run_url, params={"view": "reonboard"}).text
     assert "Preview re-onboarding" in page
-    assert "Run another comparison" in page
+    assert "Run another comparison" in client.get(run_url).text
 
     deps.get_store().update_run(run_url.rsplit("/", 1)[-1], reonboard_status="completed")
-    page = client.get(run_url).text
+    page = client.get(run_url, params={"view": "reonboard"}).text
     assert "Preview re-onboarding" not in page
-    assert "Run another comparison" not in page
+    assert "Run another comparison" not in client.get(run_url).text
     assert "See what was done" in page
 
 
@@ -949,3 +982,149 @@ def test_a_failed_scm_re_onboarding_is_still_frozen(client, monkeypatch):
     assert "Re-onboarding failed" in page
     assert 'name="plan_digest"' not in page
     assert "Nothing was retried automatically" in page
+
+
+# --- GOAL_UI_PHASE1: tabs, the parameters panel, and the re-onboarding flag ---
+
+
+def test_the_default_tab_is_severity(client):
+    page = client.get(completed_run(client)).text
+    assert "By severity" in page
+    assert 'class="tab tab-active"' in page
+    assert "not eligible for Findings Analysis" in page      # the severity table
+    assert "Which query types were removed" not in page
+
+
+def test_each_tab_shows_only_its_own_section(client):
+    """The point of the change: one section on screen, not five stacked."""
+    run_url = completed_run(client)
+    severity = "not eligible for Findings Analysis"
+    query = "Which query types were removed"
+    cwe = "CWE-209"
+    audit = "Checkmarx One records the capability"
+
+    on_query = client.get(run_url, params={"view": "query"}).text
+    assert query in on_query and severity not in on_query and audit not in on_query
+
+    on_cwe = client.get(run_url, params={"view": "cwe"}).text
+    assert cwe in on_cwe and severity not in on_cwe and query not in on_cwe
+
+    on_audit = client.get(run_url, params={"view": "audit"}).text
+    assert audit in on_audit and severity not in on_audit and cwe not in on_audit
+
+
+def test_a_tab_is_a_shareable_url(client):
+    """No JavaScript involved: the tab is a link and the URL is the state."""
+    run_url = completed_run(client)
+    page = client.get(run_url).text
+    assert f'href="{run_url}?view=cwe"' in page
+    # And following it lands on that tab, marked active.
+    assert 'aria-current="page"' in client.get(run_url, params={"view": "cwe"}).text
+
+
+def test_an_unknown_tab_falls_back_rather_than_erroring(client):
+    """A stale or mistyped link should show the page, not refuse it."""
+    response = client.get(completed_run(client), params={"view": "nonsense"})
+    assert response.status_code == 200
+    assert "not eligible for Findings Analysis" in response.text
+
+
+def test_an_empty_breakdown_keeps_its_tab_and_explains_itself(client):
+    """The tab bar must not change shape between runs.
+
+    A run recorded before per-finding detail was captured has no query or CWE
+    rows. Dropping the tabs would leave two different page layouts; the tab
+    stays and says why it is empty.
+    """
+    import routes.deps as deps
+
+    run_url = completed_run(client)
+    deps.get_store().update_run(run_url.rsplit("/", 1)[-1], compare_results=[])
+
+    page = client.get(run_url, params={"view": "query"}).text
+    assert "no per-finding detail" in page
+    assert "By query" in page                                # the tab is still there
+
+
+def test_the_old_parity_banner_is_gone(client):
+    page = client.get(completed_run(client)).text
+    assert 'class="parity-ok' not in page
+    assert "Parameter parity:" not in page
+
+
+def test_the_parameters_panel_names_both_projects_and_both_values(client):
+    """The banner claimed the scans matched; the panel shows the evidence."""
+    page = client.get(completed_run(client)).text
+    assert "Scan parameters" in page
+    assert "rmarquez/WebGoatNet" in page                      # base column head
+    assert "rmarquez/WebGoatNet_FA" in page                   # copy column head
+    # Findings Analysis differs by design, and both sides are shown saying so.
+    assert "<td><code>false</code></td>" in page
+    assert "<td><code>true</code></td>" in page
+    assert "expected to differ" in page
+
+
+def test_the_panel_carries_the_scan_identifiers(client):
+    import routes.deps as deps
+
+    run_url = completed_run(client)
+    run = deps.get_store().get_run(run_url.rsplit("/", 1)[-1])
+    page = client.get(run_url).text
+    for value in (run["baseline_scan_id"], run["fa_scan_id"], run["fa_project_id"]):
+        assert value in page
+    assert run["baseline_branch"] in page
+
+
+def test_a_run_without_a_parity_report_renders_no_panel(client):
+    """Runs recorded before the check existed: no panel beats an empty one."""
+    import routes.deps as deps
+
+    run_url = completed_run(client)
+    deps.get_store().update_run(run_url.rsplit("/", 1)[-1], parity_report=None)
+    page = client.get(run_url)
+    assert page.status_code == 200
+    assert "Scan parameters" not in page.text
+
+
+# -- the REONBOARD flag --------------------------------------------------------
+
+
+def test_the_reonboard_tab_is_disabled_when_the_flag_is_off(client_no_beta):
+    page = client_no_beta.get(completed_run(client_no_beta)).text
+    assert 'class="tab tab-disabled"' in page
+    assert "Beta" in page
+    # Disabled means no link to it anywhere on the page.
+    assert "?view=reonboard" not in page
+    assert "Preview re-onboarding" not in page
+
+
+def test_the_reonboard_routes_refuse_when_the_flag_is_off(client_no_beta):
+    """Greying out a tab is presentation. These are the control.
+
+    A bookmarked URL or a replayed form reaches the route without ever seeing
+    the tab, and the route is what disconnects a live project.
+    """
+    run_url = completed_run(client_no_beta)
+    assert client_no_beta.get(f"{run_url}/reonboard").status_code == 404
+    assert client_no_beta.get(f"{run_url}/reonboard/status").status_code == 404
+    assert client_no_beta.post(
+        f"{run_url}/reonboard", data={"confirm": "yes", "plan_digest": "x"}
+    ).status_code == 404
+
+
+def test_linking_to_the_disabled_tab_falls_back_to_severity(client_no_beta):
+    """No dead tab to land on, so the link resolves somewhere real."""
+    response = client_no_beta.get(
+        completed_run(client_no_beta), params={"view": "reonboard"}
+    )
+    assert response.status_code == 200
+    assert "not eligible for Findings Analysis" in response.text
+    assert "Preview re-onboarding" not in response.text
+
+
+def test_the_flag_changes_nothing_else_on_the_page(client_no_beta):
+    """A disabled beta must not cost the operator the measurement."""
+    page = client_no_beta.get(completed_run(client_no_beta)).text
+    assert "Scan parameters" in page
+    assert "Matches baseline 7/7" in page
+    assert "38.5" in page

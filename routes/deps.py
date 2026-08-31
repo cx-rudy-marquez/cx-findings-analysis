@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from fastapi import HTTPException
 from fastapi.templating import Jinja2Templates
 
 from config import ROOT, settings
@@ -31,6 +32,27 @@ def get_store() -> Store:
     return Store(settings)
 
 
+def require_reonboard_enabled() -> None:
+    """404 unless the operator has turned re-onboarding on.
+
+    404 rather than 403: with the flag off the feature does not exist as far as
+    this deployment is concerned, and "forbidden" would advertise a flow whose
+    whole point is that nobody has opted into it.
+
+    Lives here, and reads `settings` at call time rather than closing over it,
+    so it sees the same Settings object `base_context` does. The routes import
+    `settings` by value at import time; a check written that way would answer
+    from a snapshot taken before the process was configured.
+    """
+    if not settings.reonboard_enabled:
+        raise HTTPException(
+            status_code=404,
+            detail="Re-onboarding is disabled. It moves a live repository from "
+                   "one project to another, so it is off unless REONBOARD=true "
+                   "is set for this deployment.",
+        )
+
+
 def base_context(request, tab: str = "projects") -> dict:
     """Context every page needs, plus which tab the nav should mark active.
 
@@ -43,4 +65,8 @@ def base_context(request, tab: str = "projects") -> dict:
         "demo_mode": settings.use_fixtures,
         "tenant": settings.tenant or "demo",
         "tab": tab,
+        # Whether the re-onboarding flow is offered. Templates read this to grey
+        # the tab out; the routes enforce it, because a hidden link is not a
+        # control.
+        "reonboard_enabled": settings.reonboard_enabled,
     }

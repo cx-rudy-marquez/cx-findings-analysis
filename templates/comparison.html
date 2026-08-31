@@ -18,43 +18,18 @@
     <div class="callout callout-warn">{{ warning }}</div>
   {% endfor %}
 
-  {# Parameter parity. Absent on runs recorded before this check existed - an
-     empty verdict would be worse than none, so nothing renders. #}
-  {% if parity %}
-    {% if parity.reliable %}
-      <p class="parity-ok note">
-        <strong>Parameter parity: {{ parity.summary }}.</strong>
-        Findings Analysis is enabled on the copy and off on the base — the one difference
-        this run is testing. Nothing else about how the two scans ran differs, so the
-        change below is attributable to the capability.
+  {# A failed parity check is a verdict on every number below it, so it stays
+     here at page level rather than becoming one tab among five. #}
+  {% if parity and not parity.reliable %}
+    <div class="callout callout-danger">
+      <p><strong>This comparison needs review — {{ parity.summary }}.</strong></p>
+      <p class="note">
+        The two projects do not scan the same way. A preset change or a different
+        exclusion filter moves the finding count on its own, so the difference below is
+        not attributable to Findings Analysis alone. Reconcile the settings marked
+        below and run the comparison again.
       </p>
-    {% else %}
-      <div class="callout callout-danger">
-        <p><strong>This comparison needs review — {{ parity.summary }}.</strong></p>
-        <p class="note">
-          The two projects do not scan the same way. A preset change or a different
-          exclusion filter moves the finding count on its own, so the difference below is
-          not attributable to Findings Analysis alone. Reconcile these settings and run
-          the comparison again.
-        </p>
-        <div class="scroll-x">
-          <table class="parity-table">
-            <thead>
-              <tr><th>Setting</th><th>Base project</th><th>Findings Analysis copy</th></tr>
-            </thead>
-            <tbody>
-              {% for field in parity.fields if not field.matches and not field.expected_to_differ %}
-              <tr>
-                <td>{{ field.label }}</td>
-                <td><code>{{ field.base }}</code></td>
-                <td><code>{{ field.candidate }}</code></td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    {% endif %}
+    </div>
   {% endif %}
 
   <div class="hero">
@@ -103,6 +78,91 @@
   </div>
 </section>
 
+{# ---- what the two scans actually ran with -------------------------------
+   Absent on runs recorded before the parity check existed: an empty panel
+   would be worse than none, so nothing renders. #}
+{% if parity %}
+<section>
+  <div class="panel-head">
+    <h3>Scan parameters</h3>
+    {% if parity.reliable %}
+      <span class="badge badge-parity-ok">Matches baseline {{ parity.as_expected }}/{{ parity.total }}</span>
+    {% else %}
+      <span class="badge badge-parity-off">{{ parity.as_expected }} of {{ parity.total }} as expected</span>
+    {% endif %}
+  </div>
+
+  <dl class="scan-facts">
+    <dt>Branch</dt><dd><code>{{ run.baseline_branch or "—" }}</code></dd>
+    <dt>Baseline scan</dt><dd><code>{{ run.baseline_scan_id or "—" }}</code></dd>
+    <dt>Comparison scan</dt><dd><code>{{ run.fa_scan_id or "—" }}</code></dd>
+    <dt>Copy project</dt><dd><code>{{ run.fa_project_id or "—" }}</code></dd>
+  </dl>
+
+  <div class="scroll-x">
+    <table class="parity-table">
+      <thead>
+        <tr>
+          <th>SAST setting</th>
+          <th>{{ run.source_project_name }}</th>
+          <th>{{ run.fa_project_name }}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for field in parity.fields %}
+        <tr {% if not field.matches and not field.expected_to_differ %}class="parity-mismatch"{% endif %}>
+          <td>{{ field.label }}</td>
+          <td><code>{{ field.base }}</code></td>
+          <td><code>{{ field.candidate }}</code></td>
+          <td class="note">
+            {%- if field.expected_to_differ %}
+              <span class="parity-flag parity-flag-expected">expected to differ</span>
+            {%- elif not field.matches %}
+              <span class="parity-flag parity-flag-off">differs</span>
+            {%- endif %}
+            {# The note is suppressed on the one row where it only restates the
+               flag - the expected difference actually differing. It still shows
+               for everything that needs explaining: a preset the scan pinned
+               from the base, or the expected difference *failing* to appear. #}
+            {% if field.note and not (field.expected_to_differ and not field.matches) %}
+              {{ field.note }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="note">
+    Findings Analysis is the one setting that is <em>meant</em> to differ — that difference
+    is what this run tests. Everything else matching is what makes the change above
+    attributable to the capability rather than to how the two scans were configured.
+  </p>
+</section>
+{% endif %}
+
+{# ---- tabs ---------------------------------------------------------------
+   Plain links carrying `?view=`, so a tab is bookmarkable and shareable and
+   the page works with no JavaScript at all. #}
+<nav class="tabs subtabs no-print" aria-label="Impact sections">
+  {% for name, label in views %}
+    {% if name == "reonboard" and not reonboard_enabled %}
+      <span class="tab tab-disabled"
+            title="Re-onboarding is disabled for this deployment. Set REONBOARD=true to enable it."
+            aria-disabled="true">{{ label }} <span class="badge badge-beta">Beta</span></span>
+    {% else %}
+      <a href="/runs/{{ run.id }}?view={{ name }}"
+         class="tab{% if view == name %} tab-active{% endif %}"
+         {% if view == name %}aria-current="page"{% endif %}>
+        {{ label }}
+        {%- if name == "reonboard" %} <span class="badge badge-beta">Beta</span>{% endif %}
+      </a>
+    {% endif %}
+  {% endfor %}
+</nav>
+
+{% if view == "severity" %}
 <section>
   <h3>By severity</h3>
   <div class="bar-legend">
@@ -162,11 +222,9 @@
     results, so anything arriving in the second scan came from a difference between the scans
     themselves, not from the feature.
   </p>
-</section>
 
-{% if baseline_new_share is not none %}
-<section>
-  <h3>What to expect on an established project</h3>
+  {% if baseline_new_share is not none %}
+  <h3 style="margin-top:2.5rem">What to expect on an established project</h3>
   <div class="callout">
     This run re-onboarded the code as a brand-new project, so every finding was in
     <strong>NEW</strong> state and every finding was analysed. That is the ceiling.
@@ -174,12 +232,14 @@
     findings were NEW — so once enabled there, expect this scale of reduction on newly
     introduced findings each scan, not a one-time drop of the whole backlog repeated forever.
   </div>
+  {% endif %}
 </section>
 {% endif %}
 
-{% if by_query %}
+{% if view == "query" %}
 <section>
   <h3>Which query types were removed</h3>
+  {% if by_query %}
   <div class="scroll-x">
     <table>
       <thead>
@@ -197,12 +257,19 @@
       </tbody>
     </table>
   </div>
+  {% else %}
+  <p class="note">
+    This run recorded no per-finding detail, so there is no query breakdown to show.
+    The severity table is built from the scan summary and is unaffected.
+  </p>
+  {% endif %}
 </section>
 {% endif %}
 
-{% if by_cwe %}
+{% if view == "cwe" %}
 <section>
   <h3>By CWE</h3>
+  {% if by_cwe %}
   <div class="scroll-x">
     <table>
       <thead>
@@ -220,9 +287,16 @@
       </tbody>
     </table>
   </div>
+  {% else %}
+  <p class="note">
+    This run recorded no per-finding detail, so there is no CWE breakdown to show.
+    The severity table is built from the scan summary and is unaffected.
+  </p>
+  {% endif %}
 </section>
 {% endif %}
 
+{% if view == "audit" %}
 <section>
   <h3>Audit trail</h3>
   <p class="note">
@@ -241,14 +315,25 @@
     </li>
     {% endfor %}
   </ul>
-  {% if run.reonboard_status != "completed" %}
-  <p class="no-print" style="margin-top:2rem"><a href="/">Run another comparison</a></p>
-  {% endif %}
 </section>
+{% endif %}
 
-{% if parity and run.reonboard_status != "completed" %}
+{% if view == "reonboard" %}
 <section class="no-print">
   <h3>Re-onboarding <span class="badge badge-beta">Beta</span></h3>
+  {% if run.reonboard_status == "completed" %}
+  {# This project's cycle is finished: the repository has moved to the copy, and
+     the original is now an `_FA_BACKUP` the project list no longer offers. The
+     preview button would point somewhere already converted, so the only thing
+     left to offer is the record. #}
+  <p class="note">
+    <strong>Already re-onboarded.</strong> The repository now scans through
+    <strong>{{ run.fa_project_name }}</strong>, and
+    <strong>{{ run.source_project_name }}</strong> was kept as a manual project
+    with its full scan history.
+    <a href="/runs/{{ run.id }}/reonboard">See what was done</a>.
+  </p>
+  {% elif parity %}
   <p class="note">
     Move the repository from <strong>{{ run.source_project_name }}</strong> onto
     <strong>{{ run.fa_project_name }}</strong>, so the project carrying Findings
@@ -260,24 +345,17 @@
     Opens a dry run listing every API call and its target project id.
     Nothing is sent until you confirm it.
   </p>
+  {% else %}
+  <p class="note">
+    This run has no parameter parity check, so its comparison has not been shown
+    to be attributable. Re-run the comparison before re-onboarding.
+  </p>
+  {% endif %}
 </section>
 {% endif %}
 
-{% if run.reonboard_status == "completed" %}
-{# This project's cycle is finished: the repository has moved to the copy, and
-   the original is now an `_FA_BACKUP` the project list no longer offers. Both
-   "run another comparison" and the re-onboarding button would point somewhere
-   that has already been converted, so the only action left is the record. #}
-<section class="no-print">
-  <h3>Re-onboarding <span class="badge badge-beta">Beta</span></h3>
-  <p class="note">
-    <strong>Already re-onboarded.</strong> The repository now scans through
-    <strong>{{ run.fa_project_name }}</strong>, and
-    <strong>{{ run.source_project_name }}</strong> was kept as a manual project
-    with its full scan history.
-    <a href="/runs/{{ run.id }}/reonboard">See what was done</a>.
-  </p>
-</section>
+{% if run.reonboard_status != "completed" %}
+<p class="page-action no-print"><a href="/">Run another comparison</a></p>
 {% endif %}
 
 {% endblock %}

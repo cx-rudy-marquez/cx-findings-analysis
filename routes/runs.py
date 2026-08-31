@@ -18,7 +18,13 @@ from config import FA_PROJECT_SUFFIX, settings
 from cx import reonboard
 from cx.errors import CxError
 from cx.flow import find_fa_twin, run_flow
-from routes.deps import base_context, get_client, get_store, templates
+from routes.deps import (
+    base_context,
+    get_client,
+    get_store,
+    require_reonboard_enabled,
+    templates,
+)
 from store import COMPLETED, PENDING, RUNNING, TERMINAL_RUN_STATUSES
 
 router = APIRouter()
@@ -90,12 +96,25 @@ def run_list(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "runs.html", context)
 
 
+#: The comparison page's tabs, in the order they are rendered. The first is the
+#: default, and anything unrecognised falls back to it rather than erroring: a
+#: mistyped or stale `?view=` should show the page, not refuse it.
+COMPARISON_VIEWS: tuple[tuple[str, str], ...] = (
+    ("severity", "By severity"),
+    ("query", "By query"),
+    ("cwe", "By CWE"),
+    ("audit", "Audit trail"),
+    ("reonboard", "Re-onboarding"),
+)
+DEFAULT_VIEW = COMPARISON_VIEWS[0][0]
+
+
 @router.get("/runs/{run_id}", response_class=HTMLResponse)
-def run_detail(request: Request, run_id: str) -> HTMLResponse:
+def run_detail(request: Request, run_id: str, view: str = DEFAULT_VIEW) -> HTMLResponse:
     store = get_store()
     run = _require_run(store, run_id)
     if run["status"] in TERMINAL_RUN_STATUSES and run.get("compare_counters"):
-        return _render_comparison(request, run)
+        return _render_comparison(request, run, view)
 
     context = base_context(request, tab="runs")
     context.update(
@@ -144,11 +163,17 @@ def cancel_run(run_id: str) -> RedirectResponse:
 # had. Three routes, and the split is the safety property: the GET only reads,
 # the POST is the sole route that writes, and it refuses without both an
 # explicit confirmation and the digest of the preview that was displayed.
+#
+# All three are gated on REONBOARD. The comparison page greys the tab out when
+# the flag is off, but that is presentation: these checks are the control, and
+# they are here because a bookmarked URL, a stale tab or a replayed form reaches
+# the route without ever seeing the tab.
 
 
 @router.get("/runs/{run_id}/reonboard", response_class=HTMLResponse)
 def reonboard_preview(request: Request, run_id: str) -> HTMLResponse:
     """The mandatory dry run before, and the record of what was done after."""
+    require_reonboard_enabled()
     store = get_store()
     run = _require_run(store, run_id)
     _require_reviewed_comparison(run)
@@ -214,6 +239,7 @@ def start_reonboard(
     plan_digest: str = Form(""),
 ) -> RedirectResponse:
     """Execute an approved plan. The one route that disconnects a project."""
+    require_reonboard_enabled()
     store = get_store()
     run = _require_run(store, run_id)
     _require_reviewed_comparison(run)
@@ -245,6 +271,7 @@ def start_reonboard(
 @router.get("/runs/{run_id}/reonboard/status")
 def reonboard_status(run_id: str) -> dict:
     """Polled by the re-onboarding page while the conversion runs."""
+    require_reonboard_enabled()
     run = _require_run(get_store(), run_id)
     status = run.get("reonboard_status")
     return {
@@ -292,11 +319,19 @@ def _require_run(store, run_id: str) -> dict:
     return run
 
 
-def _render_comparison(request: Request, run: dict) -> HTMLResponse:
+def _render_comparison(
+    request: Request, run: dict, view: str = DEFAULT_VIEW
+) -> HTMLResponse:
     compare_rows = run.get("compare_results") or []
     comparison = compare(run.get("compare_counters"), run["minutes_per_finding"])
-
     context = base_context(request, tab="runs")
+    names = [name for name, _ in COMPARISON_VIEWS]
+    # A re-onboarding tab nobody may open is not somewhere to land, so a link
+    # into it while the flag is off falls back rather than showing a dead tab.
+    if view == "reonboard" and not context["reonboard_enabled"]:
+        view = DEFAULT_VIEW
+    view = view if view in names else DEFAULT_VIEW
+
     context.update(
         {
             "run": run,
@@ -309,6 +344,8 @@ def _render_comparison(request: Request, run: dict) -> HTMLResponse:
             "by_cwe": categorize.breakdown(compare_rows, key=categorize.cwe_label),
             "baseline_new_share": new_state_share(run.get("baseline_counters")),
             "steps": get_store().get_steps(run["id"]),
+            "views": COMPARISON_VIEWS,
+            "view": view,
         }
     )
     return templates.TemplateResponse(request, "comparison.html", context)

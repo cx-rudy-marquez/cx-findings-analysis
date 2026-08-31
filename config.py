@@ -153,6 +153,10 @@ class Settings:
     poll_interval_seconds: int = 8
     minutes_per_finding: int = DEFAULT_MINUTES_PER_FINDING
     snapshot_stale_hours: int = DEFAULT_SNAPSHOT_STALE_HOURS
+    #: Whether the re-onboarding flow is offered at all. Off unless explicitly
+    #: turned on: it is the one flow that moves a live repository from one
+    #: project to another, so an operator opts into it rather than out.
+    reonboard_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -177,6 +181,14 @@ class Settings:
             ),
             snapshot_stale_hours=_env_int(
                 "SNAPSHOT_STALE_HOURS", DEFAULT_SNAPSHOT_STALE_HOURS
+            ),
+            # Both spellings, for the same reason CX_CLIENT_SECRET/CX_API_KEY
+            # accepts two: the conventional upper-case name is what is
+            # documented, and a lower-case one written by hand still works.
+            # Upper case is checked first because a lower-case environment
+            # variable is unreliable on Windows.
+            reonboard_enabled=(
+                _env_bool("REONBOARD", False) or _env_bool("reonboard", False)
             ),
         )
 

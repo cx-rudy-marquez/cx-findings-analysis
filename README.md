@@ -191,6 +191,24 @@ branch; High ≥10 scans or ≥4 branches. That yields 28 low / 11 medium / 7 hi
 opens **Settings**. They were one page until the scoring knobs and the run log
 started competing for attention with the ranking they exist to serve.
 
+## The run detail page
+
+Five tabs under the headline metrics - By severity (the default), By query, By
+CWE, Audit trail and Re-onboarding - each a plain `?view=` link rather than
+client-side state. The URL is the state, so a tab is bookmarkable and
+shareable, and the page works with no JavaScript at all. An unrecognised
+`?view=` falls back to By severity rather than erroring: a stale link should
+show the page, not refuse it.
+
+Above them sits **Scan parameters**: the branch and the three identifiers the
+comparison ran with, and all seven SAST settings with the base project's value
+beside the copy's. That panel replaced a banner which asserted "7 of 7
+parameters as expected" while showing none of them - the values were already
+being stored, and thrown away at render time. `findingsAnalysis` is marked
+*expected to differ* rather than as a fault, because that difference is the
+experiment; anything else differing is flagged, and turns the page's headline
+into a "needs review" warning.
+
 ## Is this comparison trustworthy?
 
 Two checks answer that, because a number nobody can attribute is worse than no
@@ -218,6 +236,14 @@ code alongside the capability. The flag is an indicator only — this tool does
 not trigger scans on projects it did not create.
 
 ## [BETA] Re-onboarding
+
+**Off by default.** Set `REONBOARD=true` to enable it. With the flag absent or
+false the Re-onboarding tab renders greyed out with its Beta badge, and all
+three routes behind it answer 404 - greying a tab out is presentation, and a
+bookmarked URL, a stale tab or a replayed form reaches the route without ever
+seeing it. Nothing else on the page changes. (`reonboard=true` is accepted too,
+for an `.env` written by hand; the upper-case name is checked first because a
+lower-case environment variable is unreliable on Windows.)
 
 Once a comparison shows the capability is worth having, the repository still
 points at the wrong project: the base scans without Findings Analysis, the `_FA`
