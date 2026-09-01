@@ -104,14 +104,14 @@
             left behind so you can audit the scan logs, and is safe to delete afterwards.
           </p>
 
-          <label class="field">
+          <!--label class="field">
             Minutes to triage one finding
             <input type="number" name="minutes_per_finding" value="{{ default_minutes }}" min="1" max="480">
-          </label>
-          <p class="note" style="font-size:0.8rem">
+          </label -->
+          <!--p class="note" style="font-size:0.8rem">
             Used only for the “analyst hours saved” figure. It is an assumption, and it is
             shown as one.
-          </p>
+          </p-->
 
           <input type="hidden" name="project_id" value="{{ project.id }}">
           <input type="hidden" name="confirm" value="yes">

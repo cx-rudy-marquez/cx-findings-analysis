@@ -73,10 +73,10 @@
           <div class="value">{{ comparison.removed }}</div>
           <div class="label">findings removed</div>
         </div>
-        <div class="stat">
+        <!--div class="stat">
           <div class="value">{{ comparison.hours_saved }}</div>
           <div class="label">analyst hours saved,<br>at {{ comparison.minutes_per_finding }} min each</div>
-        </div>
+        </div-->
         <div class="stat">
           <div class="value">{{ comparison.total_after }}</div>
           <div class="label">findings left to triage</div>
@@ -337,12 +337,6 @@
     to be attributable. Re-run the comparison before re-onboarding.
   </p>
   {% else %}
-  <p class="note">
-    The repository moves from <strong>{{ run.source_project_name }}</strong> onto
-    <strong>{{ run.fa_project_name }}</strong>, so the project carrying Findings
-    Analysis is the one your pushes scan. Nothing is deleted, and nothing is sent
-    until you confirm a dry run that names every call and its target project id.
-  </p>
   <ol class="how-steps">
     <li>The original is disconnected from its repository. It keeps every scan it
       has ever run and becomes a manual project.</li>
