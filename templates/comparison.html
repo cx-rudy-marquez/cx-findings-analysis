@@ -191,7 +191,7 @@
       <tbody>
         {% for row in by_query %}
         <tr>
-          <td>{{ row.label }}</td>
+          <td><span class="sev sev-{{ row.severity|lower }}">{{ row.label }}</span></td>
           <td class="num">{{ row.removed }}</td>
           <td class="num">{{ row.before }}</td>
           <td class="num">{{ row.removal_rate_pct }}%</td>
@@ -221,7 +221,7 @@
       <tbody>
         {% for row in by_cwe %}
         <tr>
-          <td>{{ row.label }}</td>
+          <td><span class="sev sev-{{ row.severity|lower }}">{{ row.label }}</span></td>
           <td class="num">{{ row.removed }}</td>
           <td class="num">{{ row.before }}</td>
           <td class="num">{{ row.removal_rate_pct }}%</td>

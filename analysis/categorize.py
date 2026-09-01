@@ -30,12 +30,21 @@ class CategoryBreakdown:
     label: str
     removed: int
     before: int
+    severity: str = ""
 
     @property
     def removal_rate_pct(self) -> float:
         if self.before <= 0:
             return 0.0
         return round(self.removed / self.before * 100, 1)
+
+
+def _severity_rank(severity: str) -> int:
+    """Lower is more severe. Unknown severities sort last."""
+    try:
+        return ELIGIBLE_SEVERITIES.index(severity)
+    except ValueError:
+        return len(ELIGIBLE_SEVERITIES)
 
 
 def eligible_only(rows: list[dict]) -> list[dict]:
@@ -98,15 +107,25 @@ def breakdown(
         baseline_totals[label] = baseline_totals.get(label, 0) + 1
 
     removed_totals: dict[str, int] = {}
+    severities: dict[str, str] = {}
     for row in removed_findings(rows):
         label = key(row)
         removed_totals[label] = removed_totals.get(label, 0) + 1
+        severity = str(row.get("severity") or "").strip().upper()
+        current = severities.get(label)
+        if current is None or _severity_rank(severity) < _severity_rank(current):
+            severities[label] = severity
 
     breakdown_rows = [
         CategoryBreakdown(
-            label=label, removed=count, before=baseline_totals.get(label, count)
+            label=label,
+            removed=count,
+            before=baseline_totals.get(label, count),
+            severity=severities.get(label, ""),
         )
         for label, count in removed_totals.items()
     ]
-    breakdown_rows.sort(key=lambda row: (-row.removed, row.label))
+    breakdown_rows.sort(
+        key=lambda row: (_severity_rank(row.severity), -row.removed, row.label)
+    )
     return breakdown_rows[:limit]
