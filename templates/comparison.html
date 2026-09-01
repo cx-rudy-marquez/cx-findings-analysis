@@ -350,10 +350,9 @@
       freeing its name.</li>
     <li>The copy is renamed to <code>{{ run.source_project_name }}</code>, taking
       that name over.</li>
-    <li>The copy is connected to the repository in the original's place.</li>
-    <li>Every scanner the tenant is licensed for is switched on, and one fresh
-      full scan is queued. Best effort — a failure here is a warning, not a
-      failed re-onboarding.</li>
+    <li>The copy is connected to the repository in the original's place, and
+      that same call scans the branch the baseline ran on — the conversion
+      triggers the scan itself, so there is no separate follow-up.</li>
   </ol>
   <p class="note">
     A project connected to no repository skips straight to the two renames and
