@@ -89,6 +89,10 @@ class ReonboardPlan:
     connected_project_count: int
     base_backup_name: str = ""
     candidate_final_name: str = ""
+    #: The branch the baseline scan ran on. Sent as `branchToScanUponCreation`
+    #: when `auto_scan` is on - the conversion API needs to know what to scan,
+    #: and this is the one branch this plan actually knows was scanned.
+    baseline_branch: str = ""
     #: Scanners the tenant is entitled to, read from the bearer token. Shown in
     #: the preview so the follow-up steps are disclosed, and deliberately kept
     #: out of `digest()` - see the note there.
@@ -119,21 +123,22 @@ class ReonboardPlan:
         """
         if self.manual:
             return {}
+        project: dict = {
+            "cxProjectId": self.candidate_project_id,
+            "scmRepositoryUrl": self.repo_url,
+            "protectedBranches": list(self.protected_branches),
+            "types": list(self.engines),
+            "webhookEnabled": self.webhook_enabled,
+        }
+        if self.auto_scan and self.baseline_branch:
+            project["branchToScanUponCreation"] = self.baseline_branch
         return {
             "scmType": self.scm_type,
             "orgIdentity": self.org_identity,
             "types": list(self.engines),
             "webhookEnabled": self.webhook_enabled,
             "autoScanCxProjectAfterConversion": self.auto_scan,
-            "projects": [
-                {
-                    "cxProjectId": self.candidate_project_id,
-                    "scmRepositoryUrl": self.repo_url,
-                    "protectedBranches": list(self.protected_branches),
-                    "types": list(self.engines),
-                    "webhookEnabled": self.webhook_enabled,
-                }
-            ],
+            "projects": [project],
         }
 
     def manual_steps(self) -> list[dict]:
@@ -201,17 +206,6 @@ class ReonboardPlan:
                     "to, and no organisation to scope a conversion to."
                 ),
             },
-            {
-                "order": "—",
-                "method": "skipped",
-                "path": "/api/repos-manager/repo/{repoId}",
-                "target": self.candidate_final_name,
-                "effect": (
-                    "Manual project: it has no repoId, so there are no repository "
-                    "scanner settings to change. The rescan runs with whatever "
-                    "the Findings Analysis comparison was configured with."
-                ),
-            },
         ]
 
     def steps(self) -> list[dict]:
@@ -265,43 +259,14 @@ class ReonboardPlan:
                 ),
                 "effect": (
                     f"Connects to {self.repo_url} in {self.org_identity}, "
-                    f"protecting {', '.join(self.protected_branches)}."
-                ),
-            },
-            # Steps 5 and 6 are the post-conversion follow-up. They are listed
-            # because nothing in this flow may fire undisclosed, but they are
-            # best-effort: neither can leave a repository half-owned, and a
-            # failure in either is a warning against a re-onboarding that has
-            # already succeeded.
-            {
-                "order": 5,
-                "method": "PATCH",
-                "path": "/api/repos-manager/repo/{repoId}",
-                "target": (
-                    f"{self.candidate_final_name} - repoId resolved after "
-                    "conversion"
-                ),
-                "effect": (
-                    "Enables every licensed scanner the repository accepts"
+                    f"protecting {', '.join(self.protected_branches)}"
                     + (
-                        f" ({', '.join(self.licensed_scanners)})"
-                        if self.licensed_scanners
+                        f", and scans '{self.baseline_branch}' as part of "
+                        "the same call"
+                        if self.auto_scan and self.baseline_branch
                         else ""
                     )
-                    + ", and turns Incremental Scan and SCA auto pull requests "
-                    "off. Best effort."
-                ),
-            },
-            {
-                "order": 6,
-                "method": "POST",
-                "path": "/api/scans/rescan",
-                "target": (
-                    f"{self.candidate_final_name} ({self.candidate_project_id})"
-                ),
-                "effect": (
-                    "Queues one fresh full scan across the scanners just "
-                    "enabled. Not waited on. Best effort."
+                    + "."
                 ),
             },
         ]
@@ -635,7 +600,7 @@ def build_plan(
     backup_suffix: str = FA_BACKUP_SUFFIX,
     fa_suffix: str = FA_PROJECT_SUFFIX,
     webhook_enabled: bool = True,
-    auto_scan: bool = False,
+    auto_scan: bool = True,
     licensed_scanners: tuple[str, ...] | list[str] | None = None,
     manual: bool = False,
 ) -> ReonboardPlan:
@@ -841,6 +806,7 @@ def build_plan(
         connected_project_count=connected_count,
         base_backup_name=backup_name,
         candidate_final_name=final_name,
+        baseline_branch=(baseline_branch or "").strip(),
         licensed_scanners=tuple(licensed_scanners or ()),
         manual=manual,
         already_applied=already_applied,
@@ -864,6 +830,7 @@ def plan_to_json(plan: ReonboardPlan) -> dict:
         "engines": list(plan.engines),
         "webhook_enabled": plan.webhook_enabled,
         "auto_scan": plan.auto_scan,
+        "baseline_branch": plan.baseline_branch,
         "connected_project_count": plan.connected_project_count,
         "base_backup_name": plan.base_backup_name,
         "candidate_final_name": plan.candidate_final_name,

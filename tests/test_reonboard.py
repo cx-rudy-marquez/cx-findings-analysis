@@ -240,7 +240,7 @@ def test_the_payload_matches_the_documented_shape():
     assert payload["orgIdentity"] == "acme"
     assert payload["types"] == ["sast", "sca"]
     assert payload["webhookEnabled"] is True
-    assert payload["autoScanCxProjectAfterConversion"] is False
+    assert payload["autoScanCxProjectAfterConversion"] is True
     assert payload["projects"] == [
         {
             "cxProjectId": "fa-1",
@@ -248,22 +248,28 @@ def test_the_payload_matches_the_documented_shape():
             "protectedBranches": ["main"],
             "types": ["sast", "sca"],
             "webhookEnabled": True,
+            "branchToScanUponCreation": "main",
         }
     ]
 
 
 def test_no_branch_to_scan_is_sent_when_auto_scan_is_off():
     """`branchToScanUponCreation` is only meaningful with autoScan enabled."""
-    payload = plan().conversion_payload()
+    payload = plan(auto_scan=False).conversion_payload()
+    assert payload["autoScanCxProjectAfterConversion"] is False
     assert "branchToScanUponCreation" not in payload["projects"][0]
+
+
+def test_branch_to_scan_is_sent_when_auto_scan_is_on():
+    """The conversion API needs to know what to scan once autoScan is on."""
+    payload = plan().conversion_payload()
+    assert payload["projects"][0]["branchToScanUponCreation"] == "main"
 
 
 def test_the_candidate_is_converted_and_the_base_is_only_disconnected():
     """The direction of the swap, pinned. Reversing it would be catastrophic."""
     built = plan()
-    disconnect, rename_base, rename_candidate, convert, _settings, _rescan = (
-        built.steps()
-    )
+    disconnect, rename_base, rename_candidate, convert = built.steps()
     assert built.base_project_id in disconnect["path"]
     assert rename_base["path"] == f"/api/projects/{built.base_project_id}"
     assert rename_candidate["path"] == (
@@ -462,37 +468,14 @@ def test_a_connected_project_produces_a_complete_plan():
     assert built.scm_id == "1"
 
 
-# --- the post-conversion follow-up, as disclosed in the preview ---------------
+# --- licensed-scanner disclosure ----------------------------------------------
+# `licensed_scanners` is informational only - shown in the preview as "Licensed
+# for", not tied to any step this flow performs - so it must never affect
+# whether a plan is executable or what its digest is.
 
 
-def test_the_preview_lists_the_follow_up_calls():
-    """Nothing in this flow may fire without appearing in the dry run first."""
-    steps = plan(licensed_scanners=("SAST", "KICS")).steps()
-    assert [s["order"] for s in steps] == [1, 2, 3, 4, 5, 6]
-    assert steps[4]["method"] == "PATCH"
-    assert steps[4]["path"] == "/api/repos-manager/repo/{repoId}"
-    assert steps[5]["path"] == "/api/scans/rescan"
-
-
-def test_the_settings_step_admits_it_has_no_repo_id_yet():
-    """The candidate has no repoId until it is connected; saying one would lie."""
-    step = plan().steps()[4]
-    assert "resolved after conversion" in step["target"]
-
-
-def test_the_licensed_scanners_are_named_in_the_preview():
-    step = plan(licensed_scanners=("KICS", "SCA")).steps()[4]
-    assert "KICS, SCA" in step["effect"]
-    assert "Incremental Scan" in step["effect"]
-
-
-def test_the_digest_covers_the_ownership_change_and_not_the_follow_up():
-    """A licence change must not refuse a re-onboarding that is otherwise identical.
-
-    The digest exists to catch the tenant moving underneath an approved plan.
-    Steps 5 and 6 cannot leave a repository half-owned, so binding them would
-    only produce refusals of re-onboardings nobody needs to re-review.
-    """
+def test_the_digest_does_not_depend_on_the_licence_disclosure():
+    """A licence change must not refuse a re-onboarding that is otherwise identical."""
     assert plan(licensed_scanners=("KICS",)).digest() == (
         plan(licensed_scanners=("SCA", "Containers")).digest()
     )
@@ -667,10 +650,10 @@ def test_a_manual_plan_still_refuses_a_copy_it_did_not_create():
     assert "candidate-not-suffixed" in codes(built)
 
 
-def test_the_manual_steps_are_two_renames_a_rescan_and_three_skips():
+def test_the_manual_steps_are_two_renames_a_rescan_and_two_skips():
     steps = manual_plan().steps()
     assert [s["method"] for s in steps] == [
-        "PATCH", "PATCH", "POST", "skipped", "skipped", "skipped"
+        "PATCH", "PATCH", "POST", "skipped", "skipped"
     ]
     assert [s["order"] for s in steps[:3]] == [1, 2, 3]
     assert steps[0]["path"] == "/api/projects/base-1"
@@ -684,7 +667,6 @@ def test_every_skipped_call_says_why_it_was_skipped():
     assert [s["path"] for s in skipped] == [
         "/api/repos-manager/projects/base-1/disconnect",
         "/api/repos-manager/project-conversion",
-        "/api/repos-manager/repo/{repoId}",
     ]
     assert all("Manual project" in s["effect"] for s in skipped)
 
