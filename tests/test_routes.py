@@ -1146,6 +1146,19 @@ def test_the_reonboard_tab_carries_the_mechanics_and_one_action(client):
     assert page.count("Preview re-onboarding") == 1
 
 
+def test_the_tab_does_not_promise_calls_the_flow_no_longer_makes(client):
+    """The step list is hand-written, so nothing made it follow the code.
+
+    It went stale the moment the post-conversion scanner PATCH and rescan were
+    dropped in favour of the conversion scanning the branch itself, and the one
+    tab whose job is saying what will happen was saying the wrong thing.
+    """
+    page = client.get(completed_run(client), params={"view": "reonboard"}).text
+    assert "licensed for is switched on" not in page
+    assert "Best effort" not in page
+    assert "that same call scans the branch" in page
+
+
 # --- switching tabs keeps the reader's place ----------------------------------
 
 
