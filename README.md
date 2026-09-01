@@ -287,7 +287,14 @@ copy scans with it. Re-onboarding swaps them with four calls, in this order:
    `_FA` suffix and takes over the name the base just released.
 4. `POST /api/repos-manager/project-conversion` — the copy is connected to the
    repository, then polled through `GET /project-conversion?processId=…` to a
-   terminal `migrationStatus`.
+   terminal `migrationStatus`. The payload sets `autoScanCxProjectAfterConversion:
+   true` and `branchToScanUponCreation` to the branch the baseline scan ran on,
+   so the conversion itself scans the branch it just connected. There is no
+   separate follow-up call: this used to be trailed by a best-effort scanner-
+   settings PATCH and a second rescan, which produced a redundant extra scan on
+   top of the one the conversion itself now triggers, so that follow-up was
+   removed. The conversion's own `types` list is what actually gets scanned
+   (`sast`/`sca`/`kics`/`apisec` — the only engines `project-conversion` accepts).
 
 The order is forced at both ends. The base only gives up its name once it has
 given up the repository, and the copy can only take that name once it is free —
@@ -298,38 +305,6 @@ applied twice if a name already carries it.
 
 Because four things can now be half-applied, a failure reports exactly which of
 them landed, in order, rather than a single "it broke".
-
-**Then two more, best effort.** The project now serving the repository has only
-ever run the SAST-only comparison scan, so once the conversion reports `OK`:
-
-5. `PATCH /api/repos-manager/repo/{repoId}?projectId={copy}` — turn on every
-   scanner the tenant is licensed for, and turn `sastIncrementalScan` and
-   `scaAutoPrEnabled` off. The tenant's entitlement is read from the
-   `ast-license` claim of the bearer token this tool already holds, so Step A of
-   the goal costs no API call at all. `repoId` comes straight off
-   `GET /api/projects/{id}`, which reports it for every connected project —
-   deliberately not looked up through repos-manager, whose organisation and
-   repository listings return `500 ReposManager generic exception` on the
-   reference tenant.
-6. `POST /api/scans/rescan` with `{"project_id": "<copy>"}` — one fresh full
-   scan across the scanners just enabled. It is not waited on.
-
-Both are listed in the dry run, because nothing here fires undisclosed. Neither
-is in the plan digest: they cannot leave a repository half-owned, and binding
-them would refuse a re-onboarding over a scanner flag that drifted between
-preview and confirm. Both are best effort — **a failure in either is a warning
-against a re-onboarding still reported as successful**, because the repository
-did in fact move. The scan is attempted even when the settings update failed: a
-full scan under the old settings beats no scan, and the audit trail records
-which settings it ran under, along with both requests and both responses.
-
-A licensed scanner the repository reports as not editable is *omitted* rather
-than sent as `false`. Those say different things — omitting leaves the
-platform's answer alone, while `false` would assert a scanner should be off when
-all this tool knows is that it may not set it. The platform is the final
-authority either way: the route applies "license/FF + cascade enforcement only",
-and a conversion on the reference tenant recorded
-`ossfScoreCardScannerEnabled: UNSUPPORTED_SCM_TYPE`.
 
 It is reachable only from a completed comparison that carries a parity report,
 and only after a mandatory dry run that names both project ids, both calls and
@@ -386,10 +361,9 @@ It now takes a reduced path — **two renames and a rescan**:
 3. `POST /api/scans/rescan` with `{"project_id": "<copy>"}` — best effort
 
 No disconnect (no connection to remove), no `project-conversion` (nothing to
-connect to), no `PATCH /repo/{repoId}` (no `repoId`, so the rescan runs with
-whatever the comparison configured), no protected branches. All three skipped
-calls are listed in the preview and journalled with the reason they were
-skipped, so a manual run's audit trail reads the same way an SCM one's does.
+connect to), no protected branches. Both skipped calls are listed in the
+preview and journalled with the reason they were skipped, so a manual run's
+audit trail reads the same way an SCM one's does.
 
 The rescan is not a guess: a manual project on the reference tenant carries a
 completed scan of `type: "rescan"` whose `Handler.RescanHandler` names the scan

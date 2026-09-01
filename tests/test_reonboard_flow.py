@@ -12,10 +12,6 @@ from cx import reonboard
 from cx.errors import CxError
 from store import COMPLETED, Store
 
-#: Zero poll interval: the fake conversion is terminal immediately, and the
-#: repoId retry must not spend eight seconds a go proving a project has none.
-SETTINGS = Settings(poll_interval_seconds=0)
-
 #: `repoId` and `scmRepoId` are the repository-manager record, and every
 #: connected project on the reference tenant carries both. They are what tells
 #: this project apart from one that is genuinely manual, which takes the
@@ -55,19 +51,8 @@ class FakeClient:
         )
         #: {scm_id: [project names]}, when a test needs several integrations.
         self.memberships = overrides.get("memberships")
-        # -- post-conversion rescan
+        #: Read by `preview()` for the disclosure-only "licensed for" field.
         self.engines = overrides.get("engines", ["SAST", "KICS", "SCA"])
-        self.repo_id = overrides.get("repo_id", 72768)
-        self.repo_settings = overrides.get("repo_settings", {
-            "kicsScannerEnabled": {"value": False, "isEditable": True},
-            "scaScannerEnabled": {"value": False, "isEditable": True},
-            "sastIncrementalScan": {"value": True, "isEditable": True},
-            "scaAutoPrEnabled": {"value": True, "isEditable": True},
-        })
-        self.settings_error = overrides.get("settings_error")
-        self.rescan_error = overrides.get("rescan_error")
-        self.settings_patches = []
-        self.rescans = []
         #: Current names, mutated by `rename_project` so the tenant this fake
         #: stands for answers with what things are called *now*.
         self.names = {"base-1": BASE["name"], "fa-1": "acme/checkout_FA"}
@@ -76,38 +61,12 @@ class FakeClient:
         # Names come out of `self.names`, which the renames mutate, so a project
         # asked about after a rename reports what it is actually called now.
         if project_id == "fa-1":
-            # The converted project reports a repoId, exactly as the platform
-            # does once a project is connected - and reports none when the test
-            # is exercising the gap before the platform has assigned one.
-            record = {"id": "fa-1", "name": self.names["fa-1"]}
-            if self.repo_id:
-                record["repoId"] = self.repo_id
-            return record
+            return {"id": "fa-1", "name": self.names["fa-1"]}
         return {**BASE, "name": self.names["base-1"]}
 
     def licensed_engines(self):
         self.calls.append("licensed_engines")
         return tuple(self.engines)
-
-    def get_repo_settings(self, repo_id):
-        self.calls.append("get_repo_settings")
-        if self.settings_error:
-            raise CxError(self.settings_error)
-        return {k: dict(v) for k, v in self.repo_settings.items()}
-
-    def update_repo_settings(self, repo_id, project_id, payload):
-        self.calls.append("update_repo_settings")
-        if self.settings_error:
-            raise CxError(self.settings_error)
-        self.settings_patches.append((repo_id, project_id, payload))
-        return {"applied": dict(payload)}
-
-    def rescan_project(self, project_id):
-        self.calls.append("rescan_project")
-        if self.rescan_error:
-            raise CxError(self.rescan_error)
-        self.rescans.append(project_id)
-        return {"id": "scan-99"}
 
     def get_projects(self):
         return [
@@ -553,123 +512,3 @@ def test_every_rename_is_journalled(store):
     steps = {s["step"] for s in store.get_steps(run_id)}
     assert {"reonboard-rename-base", "reonboard-rename-candidate"} <= steps
 
-
-# --- the post-conversion rescan ----------------------------------------------
-# Best-effort by construction. Every test here exists to prove one thing: this
-# step cannot turn a re-onboarding that moved a repository into a failed one.
-
-
-def run_to_completion(client, store):
-    run_id = make_run(store)
-    reonboard.run_reonboard(
-        run_id, store, client, approved(client, store, run_id), SETTINGS
-    )
-    return run_id
-
-
-def test_the_rescan_runs_after_the_conversion_and_in_order(store):
-    client = FakeClient()
-    run_id = run_to_completion(client, store)
-
-    order = [c for c in client.calls if c in
-             ("convert_project", "get_repo_settings", "update_repo_settings",
-              "rescan_project")]
-    assert order == [
-        "convert_project", "get_repo_settings", "update_repo_settings",
-        "rescan_project",
-    ]
-    assert store.get_run(run_id)["reonboard_status"] == reonboard.COMPLETED
-
-
-def test_only_licensed_scanners_are_patched_onto_the_live_project(store):
-    client = FakeClient(engines=["SAST", "KICS"])
-    run_to_completion(client, store)
-
-    repo_id, project_id, payload = client.settings_patches[0]
-    assert repo_id == 72768
-    assert project_id == "fa-1"
-    assert payload["kicsScannerEnabled"] is True
-    assert "scaScannerEnabled" not in payload
-    assert payload["sastIncrementalScan"] is False
-    assert payload["scaAutoPrEnabled"] is False
-
-
-def test_the_scan_is_queued_against_the_converted_project(store):
-    client = FakeClient()
-    run_id = run_to_completion(client, store)
-    assert client.rescans == ["fa-1"]
-    assert store.get_run(run_id)["reonboard_result"]["rescan"]["scan_id"] == "scan-99"
-
-
-def test_both_calls_are_recorded_in_the_audit_trail(store):
-    client = FakeClient()
-    run_id = run_to_completion(client, store)
-
-    steps = {s["step"]: s for s in store.get_steps(run_id)}
-    assert steps["rescan-settings"]["outcome"] == "ok"
-    assert steps["rescan-trigger"]["outcome"] == "ok"
-
-    rescan = store.get_run(run_id)["reonboard_result"]["rescan"]
-    assert rescan["licensed_engines"] == ["SAST", "KICS", "SCA"]
-    assert rescan["repo_id"] == 72768
-    assert rescan["settings_request"]["kicsScannerEnabled"] is True
-    assert rescan["settings_response"] == {"applied": rescan["settings_request"]}
-    assert rescan["rescan_response"] == {"id": "scan-99"}
-
-
-def test_a_failed_settings_update_still_queues_the_scan(store):
-    """A full scan on the old settings beats no scan, and the trail says so."""
-    client = FakeClient(settings_error="repo 72768 is locked")
-    run_id = run_to_completion(client, store)
-
-    assert client.rescans == ["fa-1"]
-    run = store.get_run(run_id)
-    assert run["reonboard_status"] == reonboard.COMPLETED
-    warnings = run["reonboard_result"]["rescan"]["warnings"]
-    assert any("locked" in w for w in warnings)
-
-
-def test_a_failed_rescan_leaves_the_re_onboarding_completed(store):
-    client = FakeClient(rescan_error="a scan is already running")
-    run_id = run_to_completion(client, store)
-
-    run = store.get_run(run_id)
-    assert run["reonboard_status"] == reonboard.COMPLETED
-    assert run["reonboard_result"]["candidate_project_name"] == "acme/checkout"
-    assert any(
-        "already running" in w for w in run["reonboard_result"]["rescan"]["warnings"]
-    )
-    steps = {s["step"]: s for s in store.get_steps(run_id)}
-    assert steps["rescan-trigger"]["outcome"] == "warn"
-
-
-def test_a_missing_repo_id_skips_the_settings_but_still_scans(store):
-    client = FakeClient(repo_id=None)
-    run_id = run_to_completion(client, store)
-
-    assert "update_repo_settings" not in client.calls
-    assert client.rescans == ["fa-1"]
-    run = store.get_run(run_id)
-    assert run["reonboard_status"] == reonboard.COMPLETED
-    assert any(
-        "repoId" in w for w in run["reonboard_result"]["rescan"]["warnings"]
-    )
-
-
-def test_an_unexpected_error_in_the_follow_up_does_not_fail_the_run(store):
-    """The outer handler must not reopen a run whose status is already written."""
-    class Exploding(FakeClient):
-        def licensed_engines(self):
-            raise RuntimeError("something nobody predicted")
-
-    client = Exploding()
-    run_id = run_to_completion(client, store)
-    assert store.get_run(run_id)["reonboard_status"] == reonboard.COMPLETED
-
-
-def test_the_rescan_never_touches_the_base_project(store):
-    """The base is disconnected and renamed. It is not scanned, and not deleted."""
-    client = FakeClient()
-    run_to_completion(client, store)
-    assert client.rescans == ["fa-1"]
-    assert client.deleted == []

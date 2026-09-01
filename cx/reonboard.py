@@ -35,11 +35,9 @@ repository pointing anywhere unexpected. See `_run_manual_reonboard`, and
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 
-from analysis.licensing import current_values, editable_flags, scanner_payload
 from analysis.reonboard import (
     ReonboardPlan,
     build_plan,
@@ -65,11 +63,6 @@ MAX_CONVERSION_SECONDS = 15 * 60
 
 #: `migrationStatus` values that mean the process has stopped moving.
 TERMINAL_CONVERSION_STATUSES = frozenset({"OK", "PARTIAL", "FAILURE"})
-
-#: How many times to look for the converted project's `repoId` before giving
-#: up. The field appears only once the project is connected, and the conversion
-#: has just reported OK - a short wait covers the gap without holding a worker.
-REPO_ID_ATTEMPTS = 5
 
 #: Re-onboarding lifecycle, stored on the run's `reonboard_status`.
 PREVIEWED = "previewed"
@@ -446,26 +439,9 @@ def run_reonboard(
                 },
             )
             step(run_id, "reonboard", "ok",
-                 f"{plan.candidate_final_name} is connected to {plan.repo_url}")
-
-            # Everything past this point is housekeeping on a re-onboarding
-            # that has already been recorded as complete. It is called after
-            # the status is written, not before, so no failure inside it can
-            # reopen a question the tenant has already answered.
-            try:
-                rescan = _rescan_after_conversion(
-                    run_id, store, client, plan, settings
-                )
-                result = (store.get_run(run_id) or {}).get("reonboard_result") or {}
-                store.update_run(
-                    run_id, reonboard_result={**result, "rescan": rescan}
-                )
-            except Exception as exc:  # noqa: BLE001 - must not reopen a done run
-                # The outer handler would mark this run failed, which would be a
-                # lie: the repository moved, and the status saying so is already
-                # written. Anything unexpected in the follow-up is a warning.
-                log.exception("Post-re-onboard rescan for run %s failed", run_id)
-                store.log_step(run_id, "rescan", "warn", str(exc))
+                 f"{plan.candidate_final_name} is connected to {plan.repo_url}, "
+                 f"and scanning {plan.baseline_branch or 'its default branch'} "
+                 "as part of the conversion")
             return
 
         raise ReonboardAborted(
@@ -719,104 +695,6 @@ def _rescan_manual(
         outcome["warnings"].append(detail)
         step(run_id, "rescan-trigger", "warn", detail)
         log.warning("Post-rename rescan for run %s: %s", run_id, detail)
-
-    return outcome
-
-
-def _resolve_repo_id(
-    client: CxApiClient, project_id: str, settings: Settings
-) -> int | str | None:
-    """The converted project's repos-manager repo id, once the platform has one.
-
-    Read from `GET /api/projects/{id}`, which carries `repoId` for every
-    connected project. Deliberately not looked up through repos-manager: its
-    organisation and repository listings return
-    `500 ReposManager generic exception` on the reference tenant.
-    """
-    for attempt in range(REPO_ID_ATTEMPTS):
-        try:
-            repo_id = (client.get_project(project_id) or {}).get("repoId")
-        except CxError:
-            repo_id = None
-        if repo_id:
-            return repo_id
-        if attempt + 1 < REPO_ID_ATTEMPTS:
-            time.sleep(settings.poll_interval_seconds)
-    return None
-
-
-def _rescan_after_conversion(
-    run_id: str,
-    store: Store,
-    client: CxApiClient,
-    plan: ReonboardPlan,
-    settings: Settings,
-) -> dict:
-    """Enable every licensed scanner on the live project, then scan it once.
-
-    Best effort by design, and it runs *after* the run has already been written
-    as completed. The re-onboarding is what moved the repository; this is
-    housekeeping on the project that now owns it. A scanner flag that will not
-    set, or a rescan the platform refuses because a scan is already queued, is a
-    warning in the audit trail - never a re-onboarding reported as failed when
-    the repository did in fact move.
-
-    Each part is caught separately, and the scan is attempted even if the
-    settings update failed: a full scan under the old settings is still better
-    than no scan, and the trail records which settings it ran under.
-    """
-    step = store.log_step
-    outcome: dict = {"warnings": []}
-
-    def warn(name: str, detail: str) -> None:
-        outcome["warnings"].append(detail)
-        step(run_id, name, "warn", detail)
-        log.warning("Post-re-onboard %s for run %s: %s", name, run_id, detail)
-
-    project_id = plan.candidate_project_id
-    engines = ()
-    try:
-        engines = client.licensed_engines()
-    except CxError as exc:
-        warn("rescan-license", f"could not read the tenant licence: {exc}")
-    outcome["licensed_engines"] = list(engines)
-    step(run_id, "rescan-license", "ok", ", ".join(engines) or "none readable")
-
-    repo_id = _resolve_repo_id(client, project_id, settings)
-    outcome["repo_id"] = repo_id
-
-    if not repo_id:
-        warn(
-            "rescan-settings",
-            f"'{plan.candidate_final_name}' reports no repoId yet, so its scanner "
-            "settings were left as the conversion produced them.",
-        )
-    else:
-        try:
-            before = client.get_repo_settings(repo_id)
-            payload = scanner_payload(engines, editable_flags(before))
-            outcome["settings_before"] = current_values(before)
-            outcome["settings_request"] = payload
-            step(run_id, "rescan-settings", "attempting", json.dumps(payload))
-            outcome["settings_response"] = client.update_repo_settings(
-                repo_id, project_id, payload
-            )
-            enabled = sorted(k for k, v in payload.items() if v)
-            step(run_id, "rescan-settings", "ok",
-                 f"repo {repo_id}: enabled {', '.join(enabled) or 'nothing new'}; "
-                 "incremental and SCA auto-PR off")
-        except CxError as exc:
-            warn("rescan-settings", f"scanner settings were not applied: {exc}")
-
-    try:
-        step(run_id, "rescan-trigger", "attempting", project_id)
-        response = client.rescan_project(project_id)
-        outcome["rescan_response"] = response
-        scan_id = (response or {}).get("id") or (response or {}).get("scanId")
-        outcome["scan_id"] = scan_id
-        step(run_id, "rescan-trigger", "ok", f"scan {scan_id}" if scan_id else "queued")
-    except CxError as exc:
-        warn("rescan-trigger", f"no fresh scan was queued: {exc}")
 
     return outcome
 
