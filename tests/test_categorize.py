@@ -47,6 +47,16 @@ def test_breakdown_orders_by_most_removed():
     assert result[1].removal_rate_pct == 44.4
 
 
+def test_breakdown_sorts_by_severity_before_removal_count():
+    """A High-severity label sorts first even if a Medium one removed more."""
+    rows = [row("FIXED", severity="MEDIUM", query="B", sid=i) for i in range(5)] + [
+        row("FIXED", severity="HIGH", query="A", sid=100 + i) for i in range(1)
+    ]
+    result = categorize.breakdown(rows)
+    assert [b.label for b in result] == ["A", "B"]
+    assert [b.severity for b in result] == ["HIGH", "MEDIUM"]
+
+
 def test_appeared_findings_do_not_inflate_the_baseline():
     """A NEW row was never in the baseline, so it must not count towards it."""
     rows = [
