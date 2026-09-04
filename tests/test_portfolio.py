@@ -39,8 +39,32 @@ def test_critical_never_contributes_to_the_score():
     assert without == with_critical == 6
 
 
-def test_info_carries_no_weight():
-    assert portfolio.opportunity_score(counts(info=500), TUNING) == 0
+def test_info_contributes_at_its_configured_weight():
+    """Info is eligible, so it scores. This reverses an earlier decision.
+
+    The platform removes Info findings like any other, so a backlog that is
+    mostly Info is still a backlog. Scoring it at zero ranked such a project as
+    having nothing to gain.
+    """
+    assert portfolio.opportunity_score(counts(info=500), TUNING) == 500
+
+
+def test_info_can_still_be_tuned_out():
+    """Weight 1 is a default, not a verdict - a team that does not triage Info
+    turns it off in settings rather than needing a code change."""
+    muted = {**TUNING, "weight_info": 0}
+    assert portfolio.opportunity_score(counts(info=500), muted) == 0
+    assert portfolio.opportunity_score(counts(high=2, info=500), muted) == 6
+
+
+def test_info_is_weighted_but_critical_is_still_not():
+    """The two absences from the old formula were never the same thing.
+
+    Guards the copy-paste that adds Critical alongside Info: Critical must stay
+    unscored no matter how large it is.
+    """
+    scored = portfolio.opportunity_score(counts(critical=999, info=7), TUNING)
+    assert scored == 7
 
 
 def test_a_project_without_a_baseline_scores_none_not_zero():

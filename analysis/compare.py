@@ -25,6 +25,7 @@ total where it would quietly drag the reduction percentage down.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from config import (
@@ -40,6 +41,29 @@ from config import (
 REMOVED_STATUS = "FIXED"
 APPEARED_STATUS = "NEW"
 SURVIVED_STATUS = "RECURRENT"
+
+log = logging.getLogger(__name__)
+
+
+def _warn_unknown_severity(severity: str, source: str) -> None:
+    """Say so when the platform sends a severity this module does not know.
+
+    Both flatteners below silently skip anything outside `SEVERITY_ORDER`. That
+    is the right behaviour - guessing which known severity an unrecognised
+    string meant would put findings in the wrong row - but done silently it is
+    indistinguishable from a severity that genuinely had no findings. If a
+    tenant ever answers `INFORMATION` where this code expects `INFO`, every Info
+    figure in the app reads zero and looks entirely correct.
+
+    A diagnostic, never a fallback. Do not map the unknown value onto a known
+    one here.
+    """
+    log.warning(
+        "Ignoring unrecognised severity %r from %s; expected one of %s. "
+        "Findings at this severity are missing from every figure derived from "
+        "this response.",
+        severity, source, ", ".join(SEVERITY_ORDER),
+    )
 
 
 def severity_counts(sast_counters: dict | None) -> dict[str, int]:
@@ -57,6 +81,8 @@ def severity_counts(sast_counters: dict | None) -> dict[str, int]:
         severity = str(entry.get("severity") or "").upper()
         if severity in counts:
             counts[severity] = int(entry.get("counter") or 0)
+        elif severity:
+            _warn_unknown_severity(severity, "scan-summary severityCounters")
     return counts
 
 
@@ -89,6 +115,10 @@ def compare_counts(compare_summary: dict | None) -> dict[str, dict[str, int]]:
     for entry in (compare_summary or {}).get("severityStatusCounters") or []:
         severity = str(entry.get("severity") or "").upper()
         if severity not in counts:
+            if severity:
+                _warn_unknown_severity(
+                    severity, "scans-compare severityStatusCounters"
+                )
             continue
         for row in entry.get("results") or []:
             status = str(row.get("status") or "").upper()

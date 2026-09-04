@@ -132,10 +132,15 @@ start from a shortlist instead of 46 individual visits.
 
 Two signals per project, deliberately in separate columns:
 
-- **Opportunity score** = `High×3 + Medium×2 + Low×1`. Critical is excluded
-  outright — the platform never evaluates Critical results, so those findings
-  cannot be part of the opportunity. A project with 31 Critical and little else
-  correctly ranks near the bottom.
+- **Opportunity score** = `High×3 + Medium×2 + Low×1 + Info×1`. Critical is
+  excluded outright — the platform never evaluates Critical results, so those
+  findings cannot be part of the opportunity. A project with 31 Critical and
+  little else correctly ranks near the bottom. Info is weighted rather than
+  excluded, because the platform *does* evaluate it: an Info finding is
+  removable noise sitting in the same queue, and scoring a mostly-Info backlog
+  at zero would hide a real candidate. The two absences from the formula mean
+  different things, which is why Critical is missing entirely and Info is
+  present at a weight you can turn down to 0 yourself.
 - **Migration risk** — Low / Medium / High, from the scan and branch history that
   re-onboarding would discard. Low needs *both* counts small; High needs *either*
   one large, because 40 scans on one branch and 3 scans across 9 branches are

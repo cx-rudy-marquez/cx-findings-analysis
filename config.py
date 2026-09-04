@@ -91,7 +91,16 @@ DEFAULT_MINUTES_PER_FINDING = 10
 #: than present with weight 0: Findings Analysis never evaluates Critical
 #: results, so a zero would read as a tuning choice someone could raise, when in
 #: fact the severity is not eligible at all.
-DEFAULT_OPPORTUNITY_WEIGHTS: dict[str, int] = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
+#:
+#: INFO is present for the mirror-image reason. The platform *does* evaluate Info
+#: results, so an Info finding is removable noise sitting in the same queue as the
+#: rest - a project whose backlog is mostly Info is a real candidate, and scoring
+#: it as empty would hide that. Weight 1 matches Low as a conservative opening
+#: position: it is a statement about eligibility, not a claim that an Info finding
+#: costs an analyst as much as a Low one. Retune it in the UI if it should.
+DEFAULT_OPPORTUNITY_WEIGHTS: dict[str, int] = {
+    "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 1
+}
 
 #: Migration-risk cutoffs, fitted to the reference tenant's real distribution:
 #: 23 of 46 projects have a single scan and 28 a single branch, while only 5
@@ -206,6 +215,9 @@ class Settings:
             ),
             "weight_low": _env_int(
                 "OPPORTUNITY_WEIGHT_LOW", DEFAULT_OPPORTUNITY_WEIGHTS["LOW"]
+            ),
+            "weight_info": _env_int(
+                "OPPORTUNITY_WEIGHT_INFO", DEFAULT_OPPORTUNITY_WEIGHTS["INFO"]
             ),
             "risk_low_max_scans": _env_int(
                 "RISK_LOW_MAX_SCANS", DEFAULT_RISK_LOW_MAX_SCANS
