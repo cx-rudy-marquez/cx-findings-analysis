@@ -574,6 +574,7 @@ form[aria-busy="true"] .busy-note,
 .count-high   { color: var(--sev-high);     background: color-mix(in oklch, var(--sev-high) 14%, var(--surface)); }
 .count-medium { color: oklch(45% 0.12 78);  background: color-mix(in oklch, var(--sev-medium) 22%, var(--surface)); }
 .count-low    { color: var(--sev-low);      background: color-mix(in oklch, var(--sev-low) 13%, var(--surface)); }
+.count-info   { color: var(--sev-info);     background: color-mix(in oklch, var(--sev-info) 16%, var(--surface)); }
 
 /* Zero is not a signal, so it is not given the weight of one. */
 .count-zero { color: var(--ink-faint); font-variant-numeric: tabular-nums; }

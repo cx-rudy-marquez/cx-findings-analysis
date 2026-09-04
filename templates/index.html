@@ -96,6 +96,9 @@
             <th class="num">High</th>
             <th class="num">Med</th>
             <th class="num">Low</th>
+            {# Displayed, not sortable: the score already absorbs it, and the
+               columns that earn a sort are the ones a reviewer ranks on. #}
+            <th class="num">Info</th>
             <th class="num">{{ sort_link("score", "Score", sort, query) }}</th>
             <th class="num">{{ sort_link("scans", "Scans", sort, query) }}</th>
             <th class="num">{{ sort_link("branches", "Branches", sort, query) }}</th>
@@ -123,9 +126,13 @@
               {{ count_cell(row.counts.HIGH, "high") }}
               {{ count_cell(row.counts.MEDIUM, "medium") }}
               {{ count_cell(row.counts.LOW, "low") }}
+              {# `.get` rather than attribute access: a snapshot cached before
+                 Info was collected has no INFO key, and this renders it as a
+                 real zero instead of leaning on Jinja Undefined being falsy. #}
+              {{ count_cell(row.counts.get("INFO", 0), "info") }}
               <td class="num score">{{ row.score }}</td>
             {% else %}
-              <td class="num note" colspan="5" title="{{ row.note }}">{{ row.note }}</td>
+              <td class="num note" colspan="6" title="{{ row.note }}">{{ row.note }}</td>
             {% endif %}
             <td class="num">{{ row.scans }}</td>
             <td class="num">{{ row.branches }}</td>
@@ -147,7 +154,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="10" class="note">No projects matched.</td></tr>
+          <tr><td colspan="11" class="note">No projects matched.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -157,8 +164,10 @@
   <p class="note" style="margin-top:1rem">
     <strong>Score</strong> is
     High&times;{{ tuning.weight_high }} + Medium&times;{{ tuning.weight_medium }} +
-    Low&times;{{ tuning.weight_low }}. Critical is excluded: the platform never evaluates
-    Critical results, so those findings cannot be part of the opportunity.
+    Low&times;{{ tuning.weight_low }} + Info&times;{{ tuning.weight_info }}. Critical is
+    excluded: the platform never evaluates Critical results, so those findings cannot be
+    part of the opportunity. Info <em>is</em> evaluated, so it is weighted rather than
+    dropped.
     <strong>Migration</strong> prices what re-onboarding would cost — creating a fresh
     project discards the original's scan history. The two are kept separate on purpose:
     how much a project would gain and how much switching it would cost are different

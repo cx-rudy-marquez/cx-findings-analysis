@@ -1,5 +1,5 @@
 {
-  "_note": "SYNTHETIC / ILLUSTRATIVE. The baseline severity counts are real - they come from scan 466e31c9-2898-4b2f-834c-c7d72f163162 of rmarquez/WebGoatNet, 30 Jul 2026, SAST engine only. The 'after' numbers are NOT measured: no Findings-Analysis-enabled scan was ever run to produce them. Anything derived from this file is badged 'Sample Data' in the UI for that reason. The `portfolio` block is likewise illustrative: only rmarquez/WebGoatNet's severity counts and scan history are real. The other projects exist so the portfolio ranking, all three migration-risk levels and the no-SAST-baseline row can be demonstrated without a tenant. Baseline dates in `portfolio` and the `configs` block are synthetic too: they exist so the re-base recommendation and the SAST parameter parity check - including a deliberate mismatch on fixture-auth-service and fixture-legacy-billing - can be demonstrated without a tenant. The `scms`, `scm_projects` and `protected_branches` blocks are synthetic as well; they exist so the BETA re-onboarding preview - including the refusal when a project is the last one connected to its integration - can be demonstrated without touching a tenant.",
+  "_note": "SYNTHETIC / ILLUSTRATIVE. The baseline severity counts are real - they come from scan 466e31c9-2898-4b2f-834c-c7d72f163162 of rmarquez/WebGoatNet, 30 Jul 2026, SAST engine only. The 'after' numbers are NOT measured: no Findings-Analysis-enabled scan was ever run to produce them. Anything derived from this file is badged 'Sample Data' in the UI for that reason. The `portfolio` block is likewise illustrative: only rmarquez/WebGoatNet's severity counts and scan history are real. The other projects exist so the portfolio ranking, all three migration-risk levels and the no-SAST-baseline row can be demonstrated without a tenant. Baseline dates in `portfolio` and the `configs` block are synthetic too: they exist so the re-base recommendation and the SAST parameter parity check - including a deliberate mismatch on fixture-auth-service and fixture-legacy-billing - can be demonstrated without a tenant. The `scms`, `scm_projects` and `protected_branches` blocks are synthetic as well; they exist so the BETA re-onboarding preview - including the refusal when a project is the last one connected to its integration - can be demonstrated without touching a tenant. The INFO counts throughout this file are synthetic additions, layered on top of the real four-severity set so the Info column, the Info opportunity weight and the Info comparison row can be demonstrated without a tenant. The Critical/High/Medium/Low figures for rmarquez/WebGoatNet remain the real ones from scan 466e31c9-2898-4b2f-834c-c7d72f163162, which reported no Info findings at all; the `baseline_status_counters` NEW/RECURRENT split was rescaled from 20/108 to 22/120 so it still sums to the baseline total.",
   "projects": [
     {
       "id": "fixture-webgoatnet",
@@ -178,11 +178,11 @@
   "baseline_status_counters": [
     {
       "status": "NEW",
-      "counter": 20
+      "counter": 22
     },
     {
       "status": "RECURRENT",
-      "counter": 108
+      "counter": 120
     }
   ],
   "categories": [
@@ -262,6 +262,20 @@
       "cwe": 330,
       "before": 6,
       "removed": 1
+    },
+    {
+      "severity": "INFO",
+      "queryName": "Debug Enabled",
+      "cwe": 489,
+      "before": 9,
+      "removed": 6
+    },
+    {
+      "severity": "INFO",
+      "queryName": "Information Exposure Through Comments",
+      "cwe": 615,
+      "before": 5,
+      "removed": 3
     }
   ],
   "portfolio": {
@@ -270,7 +284,8 @@
         "CRITICAL": 63,
         "HIGH": 5,
         "MEDIUM": 33,
-        "LOW": 27
+        "LOW": 27,
+        "INFO": 14
       },
       "scans": 16,
       "branches": 3,
@@ -288,7 +303,8 @@
         "CRITICAL": 12,
         "HIGH": 21,
         "MEDIUM": 44,
-        "LOW": 30
+        "LOW": 30,
+        "INFO": 18
       },
       "scans": 2,
       "branches": 1,
@@ -301,7 +317,8 @@
         "CRITICAL": 4,
         "HIGH": 9,
         "MEDIUM": 51,
-        "LOW": 62
+        "LOW": 62,
+        "INFO": 40
       },
       "scans": 5,
       "branches": 2,
@@ -316,7 +333,8 @@
         "CRITICAL": 31,
         "HIGH": 14,
         "MEDIUM": 8,
-        "LOW": 3
+        "LOW": 3,
+        "INFO": 5
       },
       "scans": 58,
       "branches": 2,
@@ -330,7 +348,8 @@
         "CRITICAL": 0,
         "HIGH": 2,
         "MEDIUM": 6,
-        "LOW": 11
+        "LOW": 11,
+        "INFO": 3
       },
       "scans": 1,
       "branches": 1,
@@ -344,7 +363,8 @@
         "CRITICAL": 18,
         "HIGH": 11,
         "MEDIUM": 29,
-        "LOW": 17
+        "LOW": 17,
+        "INFO": 12
       },
       "scans": 31,
       "branches": 11,
@@ -364,7 +384,8 @@
         "CRITICAL": 7,
         "HIGH": 6,
         "MEDIUM": 19,
-        "LOW": 24
+        "LOW": 24,
+        "INFO": 11
       },
       "scans": 2,
       "branches": 1,
@@ -378,7 +399,8 @@
         "CRITICAL": 4,
         "HIGH": 31,
         "MEDIUM": 44,
-        "LOW": 12
+        "LOW": 12,
+        "INFO": 7
       },
       "scans": 21,
       "branches": 4,
@@ -392,7 +414,8 @@
         "CRITICAL": 2,
         "HIGH": 26,
         "MEDIUM": 38,
-        "LOW": 9
+        "LOW": 9,
+        "INFO": 16
       },
       "scans": 7,
       "branches": 2,
@@ -406,7 +429,8 @@
         "CRITICAL": 1,
         "HIGH": 12,
         "MEDIUM": 20,
-        "LOW": 6
+        "LOW": 6,
+        "INFO": 4
       },
       "scans": 4,
       "branches": 1,
@@ -420,7 +444,8 @@
         "CRITICAL": 1,
         "HIGH": 12,
         "MEDIUM": 20,
-        "LOW": 6
+        "LOW": 6,
+        "INFO": 4
       },
       "scans": 1,
       "branches": 1,
@@ -434,7 +459,8 @@
         "CRITICAL": 2,
         "HIGH": 18,
         "MEDIUM": 25,
-        "LOW": 9
+        "LOW": 9,
+        "INFO": 8
       },
       "scans": 3,
       "branches": 1,
@@ -448,7 +474,8 @@
         "CRITICAL": 1,
         "HIGH": 9,
         "MEDIUM": 14,
-        "LOW": 4
+        "LOW": 4,
+        "INFO": 2
       },
       "scans": 2,
       "branches": 1,

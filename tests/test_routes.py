@@ -120,7 +120,7 @@ def test_retuning_weights_changes_the_ranking_without_refetching(client):
     client.post(
         "/portfolio/settings",
         data={
-            "weight_high": 0, "weight_medium": 0, "weight_low": 1,
+            "weight_high": 0, "weight_medium": 0, "weight_low": 1, "weight_info": 1,
             "risk_low_max_scans": 2, "risk_low_max_branches": 1,
             "risk_high_min_scans": 10, "risk_high_min_branches": 4,
             "flag_top_n": 5, "rebase_stale_days": 90,
@@ -136,15 +136,162 @@ def test_retuning_weights_changes_the_ranking_without_refetching(client):
     assert order(client.get("/").text) == before
 
 
+def test_the_projects_list_shows_an_info_column(client):
+    """Info is eligible for the capability, so the list has to show it.
+
+    Before this existed the list scored Info at zero and never printed the
+    number, while the project page it linked to counted Info as eligible - the
+    two disagreed about the same project.
+    """
+    client.post("/portfolio/refresh")
+    page = client.get("/").text
+    assert ">Info</th>" in page
+    assert "count-info" in page
+    # Between Low and Score, not appended at the end.
+    assert page.index(">Low</th>") < page.index(">Info</th>") < page.index(">Score<")
+
+
+def test_the_scored_formula_on_the_list_names_every_weight(client):
+    client.post("/portfolio/refresh")
+    page = client.get("/").text
+    assert "Info&times;1" in page or "Info×1" in page
+
+
+def test_the_no_baseline_row_still_spans_the_count_columns(client):
+    """The colspan has to grow with the table or the row goes ragged."""
+    client.post("/portfolio/refresh")
+    page = client.get("/").text
+    assert "No completed scan that ran the SAST engine." in page
+    assert 'colspan="6"' in page
+
+
+def test_an_empty_result_spans_the_whole_table(client):
+    # The empty-row branch only exists once a snapshot has been built; without
+    # one the page shows the "not built yet" callout instead.
+    client.post("/portfolio/refresh")
+    page = client.get("/", params={"q": "zzzznomatch"}).text
+    assert "No projects matched." in page
+    assert 'colspan="11"' in page
+
+
+def test_the_info_weight_round_trips_through_the_settings_form(client):
+    client.post("/portfolio/refresh")
+    assert 'name="weight_info"' in client.get("/settings").text
+
+    def webgoatnet_score(page: str) -> str:
+        import re
+        row = page[page.index("WebGoatNet"):]
+        return re.search(r'<td class="num score">(\d+)</td>', row).group(1)
+
+    # Default weight 1: the 14 synthetic Info findings are worth 14 points.
+    assert webgoatnet_score(client.get("/").text) == "122"
+
+    def save(info: int):
+        client.post(
+            "/portfolio/settings",
+            data={
+                "weight_high": 3, "weight_medium": 2, "weight_low": 1,
+                "weight_info": info,
+                "risk_low_max_scans": 2, "risk_low_max_branches": 1,
+                "risk_high_min_scans": 10, "risk_high_min_branches": 4,
+                "flag_top_n": 5, "rebase_stale_days": 90,
+            },
+        )
+
+    save(0)
+    assert 'name="weight_info" min="0" max="100" value="0"' in client.get("/settings").text
+    assert webgoatnet_score(client.get("/").text) == "108"
+    # The count is still displayed even when it is worth nothing.
+    assert "count-info" in client.get("/").text
+
+    save(5)
+    assert webgoatnet_score(client.get("/").text) == "178"   # 108 + 14 x 5
+
+    client.post("/portfolio/settings/reset")
+    assert webgoatnet_score(client.get("/").text) == "122"
+
+
+def test_weighting_info_reorders_the_shortlist(client):
+    """The flip that proves the weight reaches the ranking, not just the cell."""
+    import re
+
+    def order(page: str) -> list[str]:
+        return re.findall(r'/projects/(fixture-[a-z-]+)"', page)
+
+    client.post("/portfolio/refresh")
+    with_info = order(client.get("/").text)
+
+    client.post(
+        "/portfolio/settings",
+        data={
+            "weight_high": 3, "weight_medium": 2, "weight_low": 1, "weight_info": 0,
+            "risk_low_max_scans": 2, "risk_low_max_branches": 1,
+            "risk_high_min_scans": 10, "risk_high_min_branches": 4,
+            "flag_top_n": 5, "rebase_stale_days": 90,
+        },
+    )
+    without_info = order(client.get("/").text)
+
+    # webgoatnet 108 -> 122 overtakes legacy-uploader 113 -> 121.
+    assert without_info.index("fixture-legacy-uploader") < without_info.index(
+        "fixture-webgoatnet"
+    )
+    assert with_info.index("fixture-webgoatnet") < with_info.index(
+        "fixture-legacy-uploader"
+    )
+
+
+def test_settings_saved_before_the_info_weight_existed_still_load(client):
+    """Backward compatibility for a settings row already in someone's SQLite.
+
+    `_effective_settings` overlays saved keys onto the defaults, so a row
+    written before `weight_info` existed must fall back to the default rather
+    than raising or silently scoring Info at zero.
+    """
+    from routes.deps import get_store
+    from routes.projects import _effective_settings
+
+    store = get_store()
+    legacy = {
+        "weight_high": 3, "weight_medium": 2, "weight_low": 1,
+        "risk_low_max_scans": 2, "risk_low_max_branches": 1,
+        "risk_high_min_scans": 10, "risk_high_min_branches": 4,
+        "flag_top_n": 5, "rebase_stale_days": 90,
+    }
+    store.save_portfolio_settings(legacy)
+
+    tuning, customised = _effective_settings(store)
+    assert customised is True
+    assert tuning["weight_info"] == 1
+    assert client.get("/").status_code == 200
+
+
+def test_the_info_severity_reaches_every_comparison_breakdown(client):
+    """Severity, query and CWE tabs must all carry the new severity."""
+    run_url = completed_run(client)
+
+    severity = client.get(run_url, params={"view": "severity"}).text
+    assert "sev-info" in severity
+    assert "64.3" in severity                  # 9 of 14 Info removed
+
+    query = client.get(run_url, params={"view": "query"}).text
+    assert "Debug Enabled" in query
+    assert "Information Exposure Through Comments" in query
+
+    cwe = client.get(run_url, params={"view": "cwe"}).text
+    assert "489" in cwe and "615" in cwe
+
+
 def test_the_portfolio_cannot_be_built_by_a_get(client):
     assert client.get("/portfolio/refresh").status_code == 405
 
 
 def test_project_page_shows_the_sast_only_baseline(client):
     page = client.get(f"/projects/{WEBGOATNET}").text
-    # The real WebGoatNet SAST baseline: 63/5/33/27, 128 total, 65 eligible.
-    assert ">128<" in page or "<strong>128</strong>" in page
-    assert ">65<" in page
+    # WebGoatNet's real SAST baseline is 63/5/33/27; the fixture layers a
+    # synthetic 14 Info on top, giving 142 total and 79 eligible.
+    assert ">142<" in page or "<strong>142</strong>" in page
+    assert ">79<" in page
     assert "Critical is never analysed" in page
 
 
@@ -188,11 +335,11 @@ def test_full_run_renders_the_comparison(client):
     assert wait_for_run(client, run_url)["status"] == "completed"
 
     page = client.get(run_url).text
-    assert "38.5" in page                      # 25 of 65 eligible
+    assert "43.0" in page                      # 34 of 79 eligible
     assert "Sample data — not measured" in page
     assert "not eligible for Findings Analysis" in page
-    assert "5.0" in page                       # 25 findings x 12 min = 5 hours
-    assert "15.6" in page                      # NEW share of the original baseline
+    assert "6.8" in page                       # 34 findings x 12 min = 6.8 hours
+    assert "15.5" in page                      # NEW share of the original baseline
 
     # The breakdowns moved into tabs; the data behind them is unchanged.
     assert "Stored XSS" in client.get(run_url, params={"view": "query"}).text
@@ -268,7 +415,7 @@ def test_saving_settings_returns_to_the_settings_tab(client):
     response = client.post(
         "/portfolio/settings",
         data={
-            "weight_high": 3, "weight_medium": 2, "weight_low": 1,
+            "weight_high": 3, "weight_medium": 2, "weight_low": 1, "weight_info": 1,
             "risk_low_max_scans": 2, "risk_low_max_branches": 1,
             "risk_high_min_scans": 10, "risk_high_min_branches": 4,
             "flag_top_n": 5, "rebase_stale_days": 45,
@@ -299,7 +446,7 @@ def test_the_rebase_threshold_is_tunable(client):
     client.post(
         "/portfolio/settings",
         data={
-            "weight_high": 3, "weight_medium": 2, "weight_low": 1,
+            "weight_high": 3, "weight_medium": 2, "weight_low": 1, "weight_info": 1,
             "risk_low_max_scans": 2, "risk_low_max_branches": 1,
             "risk_high_min_scans": 10, "risk_high_min_branches": 4,
             "flag_top_n": 5, "rebase_stale_days": 3650,
@@ -1064,7 +1211,7 @@ def test_the_flag_changes_nothing_else_on_the_page(client_no_beta):
     run_url = completed_run(client_no_beta)
     page = client_no_beta.get(run_url).text
     assert "Parameters match baseline" in page
-    assert "38.5" in page
+    assert "43.0" in page
     assert "Scan parameters" in client_no_beta.get(
         run_url, params={"view": "audit"}
     ).text
@@ -1100,7 +1247,7 @@ def test_the_ongoing_rate_qualifies_the_severity_table(client):
     """It explains those counts, so it belongs with them and nowhere else."""
     run_url = completed_run(client)
     page = client.get(run_url, params={"view": "severity"}).text
-    assert "15.6" in page                       # NEW share of the original baseline
+    assert "15.5" in page                       # NEW share of the original baseline
     assert "not the whole backlog again" in page
     assert "not the whole backlog again" not in client.get(
         run_url, params={"view": "cwe"}

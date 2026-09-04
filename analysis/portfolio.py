@@ -31,9 +31,12 @@ MEDIUM_RISK = "Medium"
 HIGH_RISK = "High"
 
 #: Severities the score is built from, highest first. Mirrors
-#: `config.ELIGIBLE_SEVERITIES` minus INFO, which carries no weight: the
-#: platform reports it, but no team budgets triage time for it.
-SCORED_SEVERITIES: tuple[str, ...] = ("HIGH", "MEDIUM", "LOW")
+#: `config.ELIGIBLE_SEVERITIES` exactly - every severity Findings Analysis is
+#: permitted to evaluate is scored, and only Critical, which it never evaluates,
+#: is left out. INFO is in the list because the platform removes Info findings
+#: like any other: a backlog that is mostly Info is still a backlog, and scoring
+#: it at zero would rank the project as if it had nothing to gain.
+SCORED_SEVERITIES: tuple[str, ...] = ("HIGH", "MEDIUM", "LOW", "INFO")
 
 
 @dataclass(frozen=True)
@@ -197,6 +200,7 @@ def opportunity_score(counts: dict[str, int] | None, settings: dict) -> int | No
         "HIGH": int(settings["weight_high"]),
         "MEDIUM": int(settings["weight_medium"]),
         "LOW": int(settings["weight_low"]),
+        "INFO": int(settings["weight_info"]),
     }
     return sum(int(counts.get(sev, 0)) * weights[sev] for sev in SCORED_SEVERITIES)
 
