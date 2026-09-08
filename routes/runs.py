@@ -1,23 +1,26 @@
 """Starting, watching, cancelling and comparing Findings Analysis runs.
 
-`POST /runs` is the only endpoint in the application that creates anything in a
-tenant, and it is reachable only from the confirmation dialog on the project
-page. There is no GET that starts a run, so a crawler, a prefetch or a stray
-page reload cannot spend a scan.
+`POST /runs` and `POST /runs/bulk` are the only endpoints in the application
+that create anything in a tenant, and each is reachable only from its own
+confirmation dialog - the project page for the former, the projects list for
+the latter. There is no GET that starts a run, so a crawler, a prefetch or a
+stray page reload cannot spend a scan.
 """
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from analysis import categorize
+from analysis import categorize, portfolio
 from analysis.compare import compare, new_state_share
 from analysis.reonboard import plan_to_json
 from config import FA_PROJECT_SUFFIX, settings
 from cx import reonboard
 from cx.errors import CxError
-from cx.flow import find_fa_twin, run_flow
+from cx.flow import FlowAborted, find_fa_twin, resolve_baseline, run_flow
 from routes.deps import (
     base_context,
     get_client,
@@ -25,9 +28,42 @@ from routes.deps import (
     require_reonboard_enabled,
     templates,
 )
-from store import COMPLETED, PENDING, RUNNING, TERMINAL_RUN_STATUSES
+from routes.projects import _live_exclusion_reason
+from store import COMPLETED, FAILED, PENDING, RUNNING, TERMINAL_RUN_STATUSES, Store
 
 router = APIRouter()
+
+#: Bulk batches are capped at this many project pipelines in flight at once -
+#: the user's explicit requirement, and a guard against a large "select all"
+#: batch (e.g. 36 projects) hammering the Checkmarx API with dozens of
+#: simultaneous project-creation/upload/scan-start calls.
+#:
+#: `ThreadPoolExecutor.submit` queues everything past `max_workers` and starts
+#: each queued item the moment a worker frees up, which is exactly "the 6th+
+#: project starts as soon as a slot opens" with no scheduling code of our own.
+#: `run_flow` is a plain blocking function (network calls, `time.sleep` while
+#: polling a scan) - a thread pool, not asyncio, is what actually overlaps it.
+BULK_MAX_CONCURRENT_RUNS = 5
+_bulk_run_pool = ThreadPoolExecutor(
+    max_workers=BULK_MAX_CONCURRENT_RUNS, thread_name_prefix="bulk-run"
+)
+
+
+def _run_phase_timestamps(store: Store, run: dict) -> dict[str, str | None]:
+    """createdAt/downloadStartedAt/scanStartedAt/completedAt for one run.
+
+    Built from the step journal (`store.get_step_timestamps`) that every run
+    already writes, rather than new columns - so a batch's actual concurrency
+    can be read directly from the Bulk Run view instead of inferred from UI
+    polling snapshots (GOAL_FIX_BULK_ANALYSIS.md FIX 4).
+    """
+    steps = store.get_step_timestamps(run["id"])
+    return {
+        "created_at": run["created_at"],
+        "download_started_at": steps.get("download-code"),
+        "scan_started_at": steps.get("create-scan"),
+        "completed_at": run["updated_at"] if run["status"] in TERMINAL_RUN_STATUSES else None,
+    }
 
 
 @router.post("/runs")
@@ -82,6 +118,157 @@ def start_run(
     )
     background.add_task(run_flow, run_id, project_id, store, client, settings)
     return RedirectResponse(f"/runs/{run_id}", status_code=303)
+
+
+@router.post("/runs/bulk")
+def start_bulk_run(
+    project_ids: list[str] = Form(default_factory=list),
+    confirm: str = Form(""),
+) -> RedirectResponse:
+    """Fan `run_flow` out over every selected project, up to 5 at a time.
+
+    This used to hand each project to FastAPI's `BackgroundTasks` the same
+    way `start_run` does for a single one - one `background.add_task` per
+    project. That is not concurrent: `BackgroundTasks.__call__` is `for task
+    in self.tasks: await task()`, so the *second* project's full pipeline
+    (create project, set config, download, upload, start scan, poll to
+    completion) never even began until the *first* one finished entirely. A
+    3-project batch ran three full pipelines back to back, not in parallel -
+    the effect a live-tenant test observed as projects stalling in lockstep
+    (GOAL_FIX_BULK_ANALYSIS.md FIX 4).
+
+    `_bulk_run_pool` fixes both problems in one move: submitting to a
+    `ThreadPoolExecutor` genuinely overlaps `run_flow`'s blocking I/O and
+    `time.sleep` polling across threads, and its fixed size caps how many
+    pipelines are ever in flight at once - so a large "select all" batch
+    doesn't hit the Checkmarx API with dozens of simultaneous requests, and
+    `run_flow`'s own "never raises to the caller" behaviour still isolates
+    each project's failure without any extra code here.
+    """
+    if confirm != "yes":
+        raise HTTPException(
+            status_code=400,
+            detail="A bulk run must be confirmed explicitly - it creates a "
+                   "project and starts a scan for every project selected.",
+        )
+    # Dedup, preserving order: a double-submitted checkbox list must not
+    # create two runs for the same project.
+    seen: set[str] = set()
+    ids = [pid for pid in project_ids if not (pid in seen or seen.add(pid))]
+    if not ids:
+        raise HTTPException(
+            status_code=400, detail="At least one project must be selected."
+        )
+
+    client = get_client()
+    store = get_store()
+
+    # Re-validated live, immediately before anything is written - the same
+    # "hiding a button is not a control" discipline `start_run` applies to a
+    # single project, looped here because the selection may be stale by the
+    # time this request lands.
+    to_run: list[dict] = []
+    dropped: list[dict] = []
+    for project_id in ids:
+        try:
+            project = client.get_project(project_id)
+        except CxError:
+            dropped.append(
+                {"project_id": project_id, "name": project_id,
+                 "reason": "Project not found in Checkmarx"}
+            )
+            continue
+
+        name = project.get("name") or project_id
+        reason = _live_exclusion_reason(client, project)
+        if reason is None:
+            try:
+                resolve_baseline(client, project)
+            except FlowAborted:
+                reason = portfolio.NO_BASELINE
+        if reason is None:
+            twin = find_fa_twin(client, name)
+            if twin:
+                reason = f"A project named '{twin.get('name')}' already exists"
+        if reason is None and store.find_active_run_for_project(project_id):
+            reason = "A run for this project is already in progress"
+
+        if reason is not None:
+            dropped.append({"project_id": project_id, "name": name, "reason": reason})
+        else:
+            to_run.append(project)
+
+    if not to_run:
+        # Nothing to run and nothing to watch - a batch with zero runs has no
+        # progress view worth landing on, so this reports the drop directly
+        # rather than redirecting into an empty one.
+        detail = "None of the selected projects could be run: " + "; ".join(
+            f"{item['name']} ({item['reason']})" for item in dropped
+        )
+        raise HTTPException(status_code=400, detail=detail)
+
+    batch_id = store.create_batch(project_count=len(to_run), dropped=dropped)
+    for project in to_run:
+        run_id = store.create_run(
+            source_project_id=project["id"],
+            source_project_name=project.get("name") or project["id"],
+            baseline_scan_id=None,
+            baseline_branch=None,
+            minutes_per_finding=settings.minutes_per_finding,
+            is_synthetic=settings.use_fixtures,
+            status=RUNNING,
+            batch_id=batch_id,
+        )
+        _bulk_run_pool.submit(run_flow, run_id, project["id"], store, client, settings)
+
+    return RedirectResponse(f"/runs/bulk/{batch_id}", status_code=303)
+
+
+@router.get("/runs/bulk/{batch_id}", response_class=HTMLResponse)
+def bulk_run_detail(request: Request, batch_id: str) -> HTMLResponse:
+    store = get_store()
+    batch = _require_batch(store, batch_id)
+    batch_runs = [
+        {**run, "timestamps": _run_phase_timestamps(store, run)}
+        for run in store.list_runs_for_batch(batch_id)
+    ]
+    context = base_context(request, tab="runs")
+    context.update(
+        {
+            "batch": batch,
+            "batch_runs": batch_runs,
+            "poll_seconds": settings.poll_interval_seconds,
+            "fa_suffix": FA_PROJECT_SUFFIX,
+        }
+    )
+    return templates.TemplateResponse(request, "run_bulk.html", context)
+
+
+@router.get("/runs/bulk/{batch_id}/status")
+def bulk_run_status(batch_id: str) -> dict:
+    """Polled by the bulk progress view. Reads SQLite fresh every call, so a
+    refresh or a return visit shows current progress with no other state to
+    reconstruct."""
+    store = get_store()
+    _require_batch(store, batch_id)
+    runs = store.list_runs_for_batch(batch_id)
+    return {
+        "runs": [
+            {
+                "id": run["id"],
+                "source_project_name": run["source_project_name"],
+                "status": run["status"],
+                "phase": run.get("phase"),
+                "error": run.get("error"),
+                "timestamps": _run_phase_timestamps(store, run),
+            }
+            for run in runs
+        ],
+        "completed": sum(1 for run in runs if run["status"] == COMPLETED),
+        "failed": sum(1 for run in runs if run["status"] == FAILED),
+        "total": len(runs),
+        "done": all(run["status"] in TERMINAL_RUN_STATUSES for run in runs),
+    }
 
 
 @router.get("/runs", response_class=HTMLResponse)
@@ -317,6 +504,13 @@ def _require_run(store, run_id: str) -> dict:
     if not run:
         raise HTTPException(status_code=404, detail="No such run")
     return run
+
+
+def _require_batch(store, batch_id: str) -> dict:
+    batch = store.get_batch(batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="No such batch")
+    return batch
 
 
 def _render_comparison(

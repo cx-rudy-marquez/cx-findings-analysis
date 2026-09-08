@@ -616,6 +616,50 @@ tr.stale-baseline .baseline-age { color: var(--warn); font-weight: 600; }
 .run-canceled  { color: var(--ink-soft); background: var(--surface-sunken); }
 .run-running, .run-pending { color: var(--warn); background: var(--warn-soft); }
 
+/* --- bulk analyze --------------------------------------------------------- */
+
+.bulk-select[disabled] { cursor: not-allowed; }
+tr:has(.bulk-select[disabled]) { color: var(--ink-faint); }
+
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.75rem;
+  background: var(--chrome-soft);
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+}
+/* Author `display: flex` above beats the browser's own `[hidden]{display:none}`
+   UA rule regardless of selector order, so the JS toggling `.hidden` at zero
+   selection had no visual effect without this override. */
+.bulk-action-bar[hidden] { display: none; }
+.bulk-action-bar #bulk-count { font-weight: 600; font-size: 0.88rem; }
+
+/* Collapsed by default in the confirmation modal, so a large batch does not
+   turn the dialog into a scroll of names before anyone has agreed to it. */
+.project-list { margin: 1rem 0; }
+.project-list summary { cursor: pointer; font-size: 0.88rem; color: var(--ink-soft); }
+.project-list-items {
+  max-height: 12rem;
+  overflow-y: auto;
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+.confirm-checkbox { display: flex; align-items: flex-start; gap: 0.5rem; margin: 1.25rem 0 0; font-size: 0.85rem; }
+.confirm-checkbox input { margin-top: 0.2rem; }
+
+/* Bulk run progress: a scrollable list rather than a page resized to fit an
+   arbitrarily large batch. */
+.batch-progress-list {
+  max-height: 28rem;
+  overflow-y: auto;
+}
+.badge-batch { color: var(--chrome); background: var(--chrome-soft); margin-left: 0.4rem; text-decoration: none; }
+
 /* --- in-page tabs -------------------------------------------------------- */
 /* Same .tab elements as the masthead nav; only the offset differs, since these
    sit mid-page rather than tucked under the header. */

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_confirm_modal.html" as modal %}
 {% block title %}Projects — Findings Analysis Impact{% endblock %}
 
 {# Column header that keeps the active filter while changing the sort. #}
@@ -84,11 +85,18 @@
     <button type="submit">Filter</button>
   </form>
 
+  <div class="bulk-action-bar no-print" id="bulk-bar" hidden>
+    <span id="bulk-count"></span>
+    <button type="button" id="bulk-analyze-btn">Bulk Analyze</button>
+    <button type="button" class="secondary" id="bulk-clear-btn">Clear selection</button>
+  </div>
+
   <div class="data-panel">
     <div class="scroll-x">
       <table class="portfolio">
         <thead>
           <tr>
+            <th><input type="checkbox" id="select-all" aria-label="Select all eligible projects"></th>
             <th>{{ sort_link("name", "Project", sort, query) }}</th>
             <th class="num ineligible-col" title="Findings Analysis never evaluates Critical results, so Critical is excluded from the opportunity score">
               {{ sort_link("critical", "Crit", sort, query) }}
@@ -110,7 +118,18 @@
         </thead>
         <tbody>
           {% for row in rows %}
+          {% set reason = ineligibility_reason(row) %}
           <tr class="{% if row.flagged %}flagged{% endif %}{% if row.rebase_recommended %} stale-baseline{% endif %}">
+            <td>
+              {% if reason %}
+              <input type="checkbox" class="bulk-select" disabled title="{{ reason }}">
+              {% else %}
+              <input type="checkbox" class="bulk-select"
+                     data-project-id="{{ row.id }}"
+                     data-project-name="{{ row.name }}"
+                     data-fa-name="{{ row.name }}{{ fa_suffix }}">
+              {% endif %}
+            </td>
             <td class="project-name">
               <a href="/projects/{{ row.id }}">{{ row.name }}</a>
               {% if row.analysed %}
@@ -154,12 +173,26 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="11" class="note">No projects matched.</td></tr>
+          <tr><td colspan="12" class="note">No projects matched.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
   </div>
+
+  {# Static shell only - the real selection is client-side (sessionStorage),
+     so the project list, hidden inputs and every `.bulk-count` number are
+     filled in by JS just before the dialog opens. #}
+  {% call modal.confirm_modal(
+    "bulk-confirm",
+    [],
+    true,
+    "/runs/bulk",
+    "Create selected projects and scan",
+    findings_analysis_key
+  ) %}
+    <div id="bulk-confirm-project-ids"></div>
+  {% endcall %}
 
   <p class="note" style="margin-top:1rem">
     <strong>Score</strong> is
@@ -180,4 +213,171 @@
   {% endif %}
 </section>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+
+  // Selection is client-only and keyed by nothing page-specific, matching the
+  // goal's "for the duration of the session on this page": a tab-lifetime set
+  // of project ids, kept in sessionStorage because a filter or sort here is a
+  // full page reload, not a client-side render - there is nowhere else to
+  // hold it across that navigation.
+  var STORAGE_KEY = "bulk-selection";
+
+  function loadSelection() {
+    try {
+      return JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "{}");
+    } catch (err) {
+      return {};
+    }
+  }
+
+  function saveSelection(selection) {
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(selection));
+    } catch (err) {
+      // Private browsing or a full quota - the selection just does not persist.
+    }
+  }
+
+  var selection = loadSelection();
+
+  var bulkBar = document.getElementById("bulk-bar");
+  var bulkCount = document.getElementById("bulk-count");
+  var selectAll = document.getElementById("select-all");
+  var analyzeBtn = document.getElementById("bulk-analyze-btn");
+  var clearBtn = document.getElementById("bulk-clear-btn");
+
+  // Scoped to the DOM, not the stored selection: a filtered-out project is
+  // still in `selection` (that is the whole point), but select-all must only
+  // ever touch rows the current filter actually shows.
+  function eligibleCheckboxes() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll(".bulk-select:not([disabled])")
+    );
+  }
+
+  function updateUI() {
+    var count = Object.keys(selection).length;
+    if (bulkCount) {
+      bulkCount.textContent = count + (count === 1 ? " project selected" : " projects selected");
+    }
+    if (bulkBar) bulkBar.hidden = count === 0;
+
+    var visible = eligibleCheckboxes();
+    var checkedVisible = visible.filter(function (cb) {
+      return Object.prototype.hasOwnProperty.call(selection, cb.dataset.projectId);
+    });
+    if (selectAll) {
+      selectAll.checked = visible.length > 0 && checkedVisible.length === visible.length;
+      selectAll.indeterminate = checkedVisible.length > 0 && checkedVisible.length < visible.length;
+    }
+  }
+
+  // Reflects the stored selection onto whatever rows are on screen right now.
+  // Never mutates `selection` itself - a row not rendered today (filtered
+  // out) must not be dropped just because it is absent from this reconcile.
+  function reconcile() {
+    eligibleCheckboxes().forEach(function (cb) {
+      cb.checked = Object.prototype.hasOwnProperty.call(selection, cb.dataset.projectId);
+    });
+    updateUI();
+  }
+
+  document.addEventListener("change", function (event) {
+    var cb = event.target;
+    if (!(cb instanceof HTMLInputElement) || !cb.classList.contains("bulk-select")) return;
+    var id = cb.dataset.projectId;
+    if (cb.checked) {
+      selection[id] = { name: cb.dataset.projectName, faName: cb.dataset.faName };
+    } else {
+      delete selection[id];
+    }
+    saveSelection(selection);
+    updateUI();
+  });
+
+  if (selectAll) {
+    selectAll.addEventListener("change", function () {
+      eligibleCheckboxes().forEach(function (cb) {
+        cb.checked = selectAll.checked;
+        var id = cb.dataset.projectId;
+        if (selectAll.checked) {
+          selection[id] = { name: cb.dataset.projectName, faName: cb.dataset.faName };
+        } else {
+          delete selection[id];
+        }
+      });
+      saveSelection(selection);
+      updateUI();
+    });
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", function () {
+      selection = {};
+      saveSelection(selection);
+      eligibleCheckboxes().forEach(function (cb) { cb.checked = false; });
+      updateUI();
+    });
+  }
+
+  if (analyzeBtn) {
+    analyzeBtn.addEventListener("click", function () {
+      var dialog = document.getElementById("bulk-confirm");
+      if (!dialog) return;
+      var ids = Object.keys(selection);
+      if (ids.length === 0) return;
+
+      var list = dialog.querySelector(".project-list-items");
+      if (list) {
+        list.innerHTML = "";
+        ids.forEach(function (id) {
+          var project = selection[id];
+          var li = document.createElement("li");
+          li.textContent = project.name + " → " + project.faName;
+          list.appendChild(li);
+        });
+      }
+
+      dialog.querySelectorAll(".bulk-count").forEach(function (el) {
+        el.textContent = String(ids.length);
+      });
+
+      // Mirrors the server-side `pluralize` Jinja global (routes/deps.py)
+      // used for the single-project page - keeps the two render paths in
+      // grammatical agreement at N=1.
+      dialog.querySelectorAll(".bulk-noun").forEach(function (el) {
+        el.textContent = ids.length === 1 ? el.dataset.singular : el.dataset.plural;
+      });
+
+      var hiddenContainer = document.getElementById("bulk-confirm-project-ids");
+      if (hiddenContainer) {
+        hiddenContainer.innerHTML = "";
+        ids.forEach(function (id) {
+          var input = document.createElement("input");
+          input.type = "hidden";
+          input.name = "project_ids";
+          input.value = id;
+          hiddenContainer.appendChild(input);
+        });
+      }
+
+      // A reopened dialog must not carry over a previous confirm - each
+      // selection is its own decision to make again.
+      var checkbox = document.getElementById("bulk-confirm-confirm-cb");
+      var submit = document.getElementById("bulk-confirm-submit");
+      if (checkbox) checkbox.checked = false;
+      if (submit) submit.disabled = true;
+
+      dialog.showModal();
+    });
+  }
+
+  reconcile();
+})();
+</script>
 {% endblock %}

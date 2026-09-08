@@ -153,6 +153,30 @@ def exclusion_reason(row: "ProjectRow") -> str | None:
     return None
 
 
+#: Why a row cannot be selected for a run, beyond the two reasons above. Named
+#: separately from `exclusion_reason` because "no baseline" is a tenant-content
+#: concern, not a configuration one - a project without a baseline still passes
+#: `exclusion_reason` and stays on the list, it just has nothing to run against.
+NO_BASELINE = "No completed SAST scan to use as a baseline"
+
+
+def ineligibility_reason(row: "ProjectRow") -> str | None:
+    """Why this row cannot be selected for a run, or None if it can be.
+
+    Superset of `exclusion_reason`: everything that keeps a project off the
+    list also keeps it off a run, plus the one case the list tolerates but a
+    run cannot - no baseline to compare against. One function so the
+    checkbox's disabled state and the bulk route's pre-flight re-check can
+    never independently drift apart.
+    """
+    reason = exclusion_reason(row)
+    if reason is not None:
+        return reason
+    if not row.has_baseline:
+        return NO_BASELINE
+    return None
+
+
 def visible_rows(rows: list["ProjectRow"]) -> list["ProjectRow"]:
     """The rows the portfolio is about: projects that could still adopt this.
 

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_confirm_modal.html" as modal %}
 {% block title %}{{ project.name }} — Findings Analysis Impact{% endblock %}
 {% block content %}
 
@@ -89,43 +90,16 @@
         </button>
       </div>
 
-      <dialog id="confirm">
-        <form method="post" action="/runs">
-          <h2>This creates real resources</h2>
-          <p class="note">Confirming will, in order:</p>
-          <ul>
-            <li>Download the source archive from scan <code>{{ baseline.id }}</code></li>
-            <li>Create a new project named <strong>{{ project.name }}_FA</strong>, tagged <code>purpose=findings-analysis-poc</code></li>
-            <li>Set <code>{{ findings_analysis_key }}</code> to true on it, and read the value back to confirm it stuck</li>
-            <li>Upload the archive and start one full SAST scan</li>
-          </ul>
-          <p class="note">
-            Nothing about your existing project is modified. The <code>_FA</code> project is
-            left behind so you can audit the scan logs, and is safe to delete afterwards.
-          </p>
-
-          <!--label class="field">
-            Minutes to triage one finding
-            <input type="number" name="minutes_per_finding" value="{{ default_minutes }}" min="1" max="480">
-          </label -->
-          <!--p class="note" style="font-size:0.8rem">
-            Used only for the “analyst hours saved” figure. It is an assumption, and it is
-            shown as one.
-          </p-->
-
-          <input type="hidden" name="project_id" value="{{ project.id }}">
-          <input type="hidden" name="confirm" value="yes">
-          <div class="dialog-actions">
-            <button type="button" class="secondary" onclick="document.getElementById('confirm').close()">Cancel</button>
-            <button type="submit">Create {{ project.name }}_FA and scan</button>
-          <p class="note busy-note">
-            Checking Checkmarx for an existing copy, then creating the project.
-            The scan itself runs in the background — you will be taken to a page
-            that follows it.
-          </p>
-          </div>
-        </form>
-      </dialog>
+      {% call modal.confirm_modal(
+        "confirm",
+        [{"name": project.name, "fa_name": project.name ~ "_FA"}],
+        false,
+        "/runs",
+        "Create " ~ project.name ~ "_FA and scan",
+        findings_analysis_key
+      ) %}
+        <input type="hidden" name="project_id" value="{{ project.id }}">
+      {% endcall %}
     {% endif %}
   {% endif %}
 </section>

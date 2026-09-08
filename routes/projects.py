@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from analysis import portfolio
 from analysis.compare import new_state_share, severity_counts
 from analysis.parity import findings_analysis_enabled
-from config import FINDINGS_ANALYSIS_KEY, settings
+from config import FA_PROJECT_SUFFIX, FINDINGS_ANALYSIS_KEY, settings
 from cx.errors import CxError
 from cx.flow import find_fa_twin, resolve_baseline
 from cx.portfolio import build_rows, rows_from_json, rows_to_json
@@ -79,6 +79,9 @@ def index(request: Request, q: str = "", sort: str = "score") -> HTMLResponse:
             # explanation matches whatever the settings tab currently says.
             "tuning": tuning,
             "credential_warning": settings.missing_credentials(),
+            "fa_suffix": FA_PROJECT_SUFFIX,
+            "ineligibility_reason": portfolio.ineligibility_reason,
+            "findings_analysis_key": FINDINGS_ANALYSIS_KEY,
         }
     )
     return templates.TemplateResponse(request, "index.html", context)
