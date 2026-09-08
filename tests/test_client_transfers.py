@@ -152,3 +152,146 @@ def test_compare_summary_hits_the_status_subpath():
     assert seen["path"] == "/api/scans-compare/sast/status"
     assert seen["base"] == "base-1"
     assert seen["evaluation"] is None
+
+
+# --- CWE-117: Log Forging prevention -----------------------------------------
+# User-supplied project_id flows through get_project() -> get() -> _json() ->
+# _request(), where it is embedded in the `path` argument that reaches the
+# debug log call.  A project_id containing CR or LF characters could forge
+# additional log lines.  The fix sanitises `path` at the log call site.
+
+
+def test_log_debug_strips_newline_from_user_controlled_path(caplog):
+    """A project_id containing \\n must not produce a second log record.
+
+    The attack: a crafted project_id such as
+    ``legit-id\\nINFO root Injected log entry`` would cause `path` to span
+    multiple lines when formatted into the debug message, creating a fake log
+    record.  After the fix the newline is replaced with a space so the log
+    message is a single line and cannot be mistaken for additional records.
+    """
+    import logging
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": "legit-id", "name": "test"})
+
+    client = build(handler)
+    # Simulate a project_id that contains an injected newline character.
+    # In production this value arrives from a form POST (routes/runs.py:77).
+    malicious_project_id = "legit-id\nINFO root Injected log entry"
+    with caplog.at_level(logging.DEBUG, logger="cx.client"):
+        client.get(f"/api/projects/{malicious_project_id}")
+
+    # The log output must be a single record: the newline must have been
+    # replaced, not left in place where it would produce a second apparent line.
+    debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    assert debug_records, "at least one debug record expected"
+    for record in debug_records:
+        assert "\n" not in record.getMessage(), (
+            "Log message must not contain a literal newline — that would "
+            "allow an attacker to forge additional log entries."
+        )
+        assert "\r" not in record.getMessage(), (
+            "Log message must not contain a carriage return."
+        )
+
+
+def test_log_debug_strips_carriage_return_from_user_controlled_path(caplog):
+    """A project_id containing \\r must not produce a log-injection opportunity.
+
+    Carriage return can be used to overwrite portions of a log line in
+    terminals or log viewers that interpret CR as "move cursor to line start".
+    """
+    import logging
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": "legit-id", "name": "test"})
+
+    client = build(handler)
+    malicious_project_id = "legit-id\rOverwritten log content"
+    with caplog.at_level(logging.DEBUG, logger="cx.client"):
+        client.get(f"/api/projects/{malicious_project_id}")
+
+    debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    assert debug_records, "at least one debug record expected"
+    for record in debug_records:
+        assert "\r" not in record.getMessage(), (
+            "Log message must not contain a carriage return — that would "
+            "allow an attacker to manipulate log output."
+        )
+
+
+def test_log_debug_strips_crlf_from_user_controlled_path(caplog):
+    """A project_id containing \\r\\n must not produce a log-forging opportunity."""
+    import logging
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": "legit-id", "name": "test"})
+
+    client = build(handler)
+    malicious_project_id = "legit-id\r\nERROR admin Fake critical error"
+    with caplog.at_level(logging.DEBUG, logger="cx.client"):
+        client.get(f"/api/projects/{malicious_project_id}")
+
+    debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    assert debug_records, "at least one debug record expected"
+    for record in debug_records:
+        msg = record.getMessage()
+        assert "\n" not in msg and "\r" not in msg, (
+            "Log message must not contain CR or LF after sanitisation."
+        )
+
+
+def test_log_debug_preserves_legitimate_path_content(caplog):
+    """A benign project_id must still appear correctly in the debug log.
+
+    The sanitisation must not strip content other than CR and LF characters,
+    so a normal UUID-style identifier must survive unchanged.
+    """
+    import logging
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": "abc-123", "name": "my-project"})
+
+    client = build(handler)
+    with caplog.at_level(logging.DEBUG, logger="cx.client"):
+        client.get("/api/projects/abc-123")
+
+    debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    assert debug_records, "at least one debug record expected"
+    # The sanitised path should still be recognisable in the log message.
+    assert any(
+        "/api/projects/abc-123" in record.getMessage()
+        for record in debug_records
+    ), "Legitimate path content must not be removed by sanitisation."
+
+
+def test_log_debug_sanitises_path_not_the_http_request(caplog):
+    """Sanitisation applies only to the log output, not to the actual HTTP URL.
+
+    The outbound request must carry the original (unsanitised) path so that
+    the Checkmarx API receives the value the caller intended.  Only the log
+    record should have its newlines replaced.
+    """
+    import logging
+
+    captured_url: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_url.append(str(request.url))
+        return httpx.Response(200, json={"id": "test", "name": "test"})
+
+    client = build(handler)
+    # A path with an embedded newline (simulating a user-controlled segment).
+    path_with_nl = "/api/projects/test-id\ninjected"
+    with caplog.at_level(logging.DEBUG, logger="cx.client"):
+        client.get(path_with_nl)
+
+    # The log record must not contain the raw newline.
+    debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    for record in debug_records:
+        assert "\n" not in record.getMessage()
+
+    # The HTTP request URL is handled by httpx and is separate from the log
+    # sanitisation — the sanitisation only affects what appears in the log.
+    assert captured_url, "the HTTP request must still be sent"

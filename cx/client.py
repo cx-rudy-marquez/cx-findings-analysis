@@ -108,7 +108,7 @@ class CxApiClient:
                 log.debug(
                     "%s %s params=%s -> %s in %.0fms",
                     method,
-                    path,
+                    path.replace("\r", " ").replace("\n", " "),
                     _loggable(params),
                     response.status_code,
                     (time.monotonic() - started) * 1000,
