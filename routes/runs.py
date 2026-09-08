@@ -44,6 +44,11 @@ router = APIRouter()
 #: `run_flow` is a plain blocking function (network calls, `time.sleep` while
 #: polling a scan) - a thread pool, not asyncio, is what actually overlaps it.
 BULK_MAX_CONCURRENT_RUNS = 5
+
+#: Hard upper bound on the number of project IDs accepted per bulk request.
+#: Prevents an attacker from supplying an arbitrarily large list that would
+#: force the server to make hundreds of outbound API calls (DoS via loop).
+BULK_MAX_PROJECT_IDS = 200
 _bulk_run_pool = ThreadPoolExecutor(
     max_workers=BULK_MAX_CONCURRENT_RUNS, thread_name_prefix="bulk-run"
 )
@@ -150,6 +155,17 @@ def start_bulk_run(
             status_code=400,
             detail="A bulk run must be confirmed explicitly - it creates a "
                    "project and starts a scan for every project selected.",
+        )
+    # Bound the input list before the loop to prevent a DoS: an attacker who
+    # submits thousands of project_ids would force the server to make an
+    # outbound API call for every entry.  The UI never sends more than the
+    # tenant's full project list; BULK_MAX_PROJECT_IDS is well above any
+    # realistic tenant but finite enough to cap the loop iteration count.
+    if len(project_ids) > BULK_MAX_PROJECT_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many project IDs submitted: {len(project_ids)} "
+                   f"(maximum {BULK_MAX_PROJECT_IDS}).",
         )
     # Dedup, preserving order: a double-submitted checkbox list must not
     # create two runs for the same project.

@@ -460,6 +460,122 @@ def test_bulk_run_with_every_project_ineligible_does_not_create_a_batch(client):
     assert "No completed SAST scan" in response.text
 
 
+# --- CWE-606: unchecked input for loop condition (DoS guard) ------------------
+
+
+def test_bulk_run_rejects_more_than_bulk_max_project_ids(client):
+    """Submitting more project IDs than BULK_MAX_PROJECT_IDS must be rejected
+    before the loop begins, to prevent a DoS via arbitrarily many API calls.
+    """
+    from routes.runs import BULK_MAX_PROJECT_IDS
+
+    # One over the limit — every entry is a distinct fake ID so dedup does
+    # not reduce the list before the bounds check fires.
+    oversized = [f"fake-project-{i}" for i in range(BULK_MAX_PROJECT_IDS + 1)]
+    response = client.post(
+        "/runs/bulk",
+        data={"project_ids": oversized, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "Too many project IDs" in response.json()["detail"]
+
+
+def test_bulk_run_rejects_exactly_at_the_limit_plus_one(client):
+    """The boundary condition: limit+1 is still refused."""
+    from routes.runs import BULK_MAX_PROJECT_IDS
+
+    oversized = [f"fake-project-{i}" for i in range(BULK_MAX_PROJECT_IDS + 1)]
+    response = client.post(
+        "/runs/bulk",
+        data={"project_ids": oversized, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+
+
+def test_bulk_run_accepts_exactly_bulk_max_project_ids(client, monkeypatch):
+    """Exactly BULK_MAX_PROJECT_IDS entries must not be refused by the bounds
+    check — the endpoint should proceed past the validation step.
+
+    We monkeypatch get_project so none of the fake IDs trigger real API calls;
+    the assertion is only that the 400 from the bounds check is NOT raised.
+    The request still fails (all projects get dropped) but with a 400 that
+    cites eligibility, not the size limit.
+    """
+    from routes.runs import BULK_MAX_PROJECT_IDS
+    from cx.errors import CxError
+    import routes.runs as runs_module
+
+    # Patch the client so every project lookup raises CxError (not found) —
+    # this causes all IDs to be dropped and the batch to be rejected due to
+    # eligibility, but the loop does execute, proving the size guard passed.
+    class _FakeClient:
+        def get_project(self, project_id):
+            raise CxError("not found")
+
+    monkeypatch.setattr(runs_module, "get_client", lambda: _FakeClient())
+
+    at_limit = [f"fake-project-{i}" for i in range(BULK_MAX_PROJECT_IDS)]
+    response = client.post(
+        "/runs/bulk",
+        data={"project_ids": at_limit, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    # The size guard must NOT have fired — if it did the message would say
+    # "Too many project IDs".  The real 400 here is "None of the selected
+    # projects could be run" (all were dropped by CxError).
+    assert response.status_code == 400
+    assert "Too many project IDs" not in response.json()["detail"]
+
+
+def test_bulk_run_size_check_fires_before_confirmation_check_does_not(client):
+    """Confirm is checked first; the size limit is checked immediately after.
+
+    A request with a bad confirm AND an oversized list must fail on the confirm
+    check, because that is validated first.  This ensures the checks are ordered
+    correctly (confirm → size → dedup → loop).
+    """
+    from routes.runs import BULK_MAX_PROJECT_IDS
+
+    oversized = [f"fake-project-{i}" for i in range(BULK_MAX_PROJECT_IDS + 1)]
+    response = client.post(
+        "/runs/bulk",
+        data={"project_ids": oversized},   # no confirm field
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    # Must be the confirm error, not the size error.
+    assert "confirmed explicitly" in response.json()["detail"]
+
+
+def test_bulk_run_size_check_fires_before_the_loop(client, monkeypatch):
+    """Verify the size guard short-circuits BEFORE any outbound API calls are
+    made.  If the loop ran even once for an oversized batch, get_project would
+    be called; patching it to record calls proves it was never reached.
+    """
+    from routes.runs import BULK_MAX_PROJECT_IDS
+    import routes.runs as runs_module
+
+    calls = []
+
+    class _SpyClient:
+        def get_project(self, project_id):
+            calls.append(project_id)
+            raise RuntimeError("should not be reached")
+
+    monkeypatch.setattr(runs_module, "get_client", lambda: _SpyClient())
+
+    oversized = [f"fake-project-{i}" for i in range(BULK_MAX_PROJECT_IDS + 1)]
+    response = client.post(
+        "/runs/bulk",
+        data={"project_ids": oversized, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert calls == [], "get_project must not be called for an oversized batch"
+
+
 def test_a_failure_in_one_bulk_project_does_not_affect_others(client, monkeypatch):
     """Bulk needs no failure-isolation code of its own - `run_flow` already
     never raises to its caller, and each project gets its own background task
