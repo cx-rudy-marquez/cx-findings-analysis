@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Bulk run — {{ batch.project_count }} projects{% endblock %}
+{% block content %}
+
+<section>
+  <p class="eyebrow"><a href="/">All projects</a></p>
+  <h2>Bulk Findings Analysis run</h2>
+
+  <p class="phase" id="batch-summary">
+    {{ batch_runs|selectattr("status", "equalto", "completed")|list|length }} of
+    {{ batch_runs|length }} complete,
+    {{ batch_runs|selectattr("status", "equalto", "failed")|list|length }} failed
+  </p>
+
+  {% if batch.dropped %}
+  <div class="callout callout-warn">
+    <p><strong>{{ batch.dropped|length }} project(s) were not started</strong> — dropped when confirming, because they
+      were no longer eligible:</p>
+    <ul>
+      {% for item in batch.dropped %}
+      <li>{{ item.name }} — {{ item.reason }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="data-panel">
+    <div class="scroll-x batch-progress-list">
+      <table class="portfolio">
+        <thead>
+          <tr>
+            <th>Project</th>
+            <th>Status</th>
+            <th>Phase</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="batch-rows">
+          {% for run in batch_runs %}
+          <tr id="batch-row-{{ run.id }}">
+            <td class="project-name">{{ run.source_project_name }}</td>
+            <td><span class="run-status run-{{ run.status }}">{{ run.status }}</span></td>
+            <td class="note" title="{{ phase_timeline(run.timestamps) }}">
+              {{ run.phase or "" }}{% if run.error %} — {{ run.error }}{% endif %}
+            </td>
+            <td><a href="/runs/{{ run.id }}">View</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const batchId = {{ batch.id | tojson }};
+  const intervalMs = {{ poll_seconds }} * 1000;
+
+  function escapeHtml(text) {
+    return String(text).replace(/[<>&]/g, (ch) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[ch]));
+  }
+
+  // Mirrors the server-side `phase_timeline` Jinja global (routes/deps.py)
+  // used for the initial render, so the poller's replacement rows carry the
+  // same tooltip.
+  function phaseTimeline(timestamps) {
+    const labels = [
+      ["created", timestamps.created_at],
+      ["download started", timestamps.download_started_at],
+      ["scan started", timestamps.scan_started_at],
+      ["completed", timestamps.completed_at],
+    ];
+    return labels.filter(([, value]) => value).map(([label, value]) => `${label} ${value}`).join(" · ");
+  }
+
+  async function tick() {
+    try {
+      const res = await fetch(`/runs/bulk/${batchId}/status`, { headers: { Accept: "application/json" } });
+      if (!res.ok) return;
+      const data = await res.json();
+
+      document.getElementById("batch-summary").textContent =
+        `${data.completed} of ${data.total} complete, ${data.failed} failed`;
+
+      const tbody = document.getElementById("batch-rows");
+      tbody.replaceChildren(...data.runs.map((run) => {
+        const tr = document.createElement("tr");
+        tr.id = `batch-row-${run.id}`;
+
+        const name = document.createElement("td");
+        name.className = "project-name";
+        name.textContent = run.source_project_name;
+
+        const status = document.createElement("td");
+        status.innerHTML = `<span class="run-status run-${escapeHtml(run.status)}">${escapeHtml(run.status)}</span>`;
+
+        const phase = document.createElement("td");
+        phase.className = "note";
+        phase.title = phaseTimeline(run.timestamps || {});
+        phase.textContent = (run.phase || "") + (run.error ? ` — ${run.error}` : "");
+
+        const link = document.createElement("td");
+        link.innerHTML = `<a href="/runs/${run.id}">View</a>`;
+
+        tr.append(name, status, phase, link);
+        return tr;
+      }));
+
+      if (data.done) {
+        // Nothing left to poll for - the per-run pages behind "View" keep
+        // following their own scans and comparisons from here.
+        clearInterval(timer);
+      }
+    } catch (err) {
+      // A dropped poll is not worth an error banner; the next tick recovers.
+    }
+  }
+
+  const timer = setInterval(tick, intervalMs);
+  tick();
+</script>
+{% endblock %}

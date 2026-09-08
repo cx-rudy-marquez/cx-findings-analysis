@@ -9,6 +9,8 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+from config import ROOT
+
 WEBGOATNET = "fixture-webgoatnet"
 #: A fixture project with no SAST scan at all - the one whose portfolio entry
 #: declares no severities. Present deliberately: the "no baseline" path must
@@ -69,6 +71,15 @@ def wait_for_run(client, run_url: str, attempts: int = 60) -> dict:
             return payload
         time.sleep(0.1)
     raise AssertionError(f"run did not finish: {payload}")
+
+
+def wait_for_batch(client, batch_url: str, attempts: int = 60) -> dict:
+    for _ in range(attempts):
+        payload = client.get(f"{batch_url}/status").json()
+        if payload["done"]:
+            return payload
+        time.sleep(0.1)
+    raise AssertionError(f"batch did not finish: {payload}")
 
 
 def test_healthz_reports_demo_mode(client):
@@ -171,7 +182,7 @@ def test_an_empty_result_spans_the_whole_table(client):
     client.post("/portfolio/refresh")
     page = client.get("/", params={"q": "zzzznomatch"}).text
     assert "No projects matched." in page
-    assert 'colspan="11"' in page
+    assert 'colspan="12"' in page
 
 
 def test_the_info_weight_round_trips_through_the_settings_form(client):
@@ -370,6 +381,409 @@ def test_an_in_flight_run_is_not_duplicated(client, tmp_path):
         follow_redirects=False,
     )
     assert response.headers["location"] == f"/runs/{run_id}"
+
+
+# --- Bulk Analyze -------------------------------------------------------------
+
+
+def test_bulk_run_must_be_confirmed(client):
+    response = client.post(
+        "/runs/bulk", data={"project_ids": [WEBGOATNET]}, follow_redirects=False
+    )
+    assert response.status_code == 400
+
+
+def test_bulk_run_rejects_an_empty_selection(client):
+    response = client.post(
+        "/runs/bulk", data={"confirm": "yes"}, follow_redirects=False
+    )
+    assert response.status_code == 400
+
+
+def test_bulk_run_starts_every_selected_project_in_parallel(client):
+    response = client.post(
+        "/runs/bulk",
+        data={"project_ids": [WEBGOATNET, "fixture-payments-api"], "confirm": "yes"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    batch_url = response.headers["location"]
+
+    status = wait_for_batch(client, batch_url)
+    assert status["total"] == 2
+    assert status["completed"] == 2
+    assert status["failed"] == 0
+
+    page = client.get(batch_url).text
+    assert "rmarquez/WebGoatNet" in page
+    assert "acme/payments-api" in page
+    assert "were not started" not in page
+
+
+def test_bulk_run_drops_ineligible_projects_and_proceeds_with_the_rest(client):
+    """One collision must not block the rest of a batch.
+
+    `NO_SAST` has no baseline scan, so it fails the live pre-flight check and
+    is dropped; `WEBGOATNET` is untouched and still runs.
+    """
+    response = client.post(
+        "/runs/bulk",
+        data={"project_ids": [WEBGOATNET, NO_SAST], "confirm": "yes"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    batch_url = response.headers["location"]
+    batch_id = batch_url.rsplit("/", 1)[-1]
+
+    from routes.deps import get_store
+
+    batch = get_store().get_batch(batch_id)
+    assert batch["project_count"] == 1
+    assert [item["project_id"] for item in batch["dropped"]] == [NO_SAST]
+
+    status = wait_for_batch(client, batch_url)
+    assert status["total"] == 1
+    assert status["completed"] == 1
+
+    page = client.get(batch_url).text
+    assert "were not started" in page
+    assert NO_SAST_NAME in page
+    assert "No completed SAST scan" in page
+
+
+def test_bulk_run_with_every_project_ineligible_does_not_create_a_batch(client):
+    response = client.post(
+        "/runs/bulk", data={"project_ids": [NO_SAST], "confirm": "yes"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "No completed SAST scan" in response.text
+
+
+# --- CWE-606: unchecked input for loop condition (DoS guard) ------------------
+
+
+def test_bulk_run_rejects_more_than_bulk_max_project_ids(client):
+    """Submitting more project IDs than BULK_MAX_PROJECT_IDS must be rejected
+    before the loop begins, to prevent a DoS via arbitrarily many API calls.
+    """
+    from routes.runs import BULK_MAX_PROJECT_IDS
+
+    # One over the limit — every entry is a distinct fake ID so dedup does
+    # not reduce the list before the bounds check fires.
+    oversized = [f"fake-project-{i}" for i in range(BULK_MAX_PROJECT_IDS + 1)]
+    response = client.post(
+        "/runs/bulk",
+        data={"project_ids": oversized, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "Too many project IDs" in response.json()["detail"]
+
+
+def test_bulk_run_rejects_exactly_at_the_limit_plus_one(client):
+    """The boundary condition: limit+1 is still refused."""
+    from routes.runs import BULK_MAX_PROJECT_IDS
+
+    oversized = [f"fake-project-{i}" for i in range(BULK_MAX_PROJECT_IDS + 1)]
+    response = client.post(
+        "/runs/bulk",
+        data={"project_ids": oversized, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+
+
+def test_bulk_run_accepts_exactly_bulk_max_project_ids(client, monkeypatch):
+    """Exactly BULK_MAX_PROJECT_IDS entries must not be refused by the bounds
+    check — the endpoint should proceed past the validation step.
+
+    We monkeypatch get_project so none of the fake IDs trigger real API calls;
+    the assertion is only that the 400 from the bounds check is NOT raised.
+    The request still fails (all projects get dropped) but with a 400 that
+    cites eligibility, not the size limit.
+    """
+    from routes.runs import BULK_MAX_PROJECT_IDS
+    from cx.errors import CxError
+    import routes.runs as runs_module
+
+    # Patch the client so every project lookup raises CxError (not found) —
+    # this causes all IDs to be dropped and the batch to be rejected due to
+    # eligibility, but the loop does execute, proving the size guard passed.
+    class _FakeClient:
+        def get_project(self, project_id):
+            raise CxError("not found")
+
+    monkeypatch.setattr(runs_module, "get_client", lambda: _FakeClient())
+
+    at_limit = [f"fake-project-{i}" for i in range(BULK_MAX_PROJECT_IDS)]
+    response = client.post(
+        "/runs/bulk",
+        data={"project_ids": at_limit, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    # The size guard must NOT have fired — if it did the message would say
+    # "Too many project IDs".  The real 400 here is "None of the selected
+    # projects could be run" (all were dropped by CxError).
+    assert response.status_code == 400
+    assert "Too many project IDs" not in response.json()["detail"]
+
+
+def test_bulk_run_size_check_fires_before_confirmation_check_does_not(client):
+    """Confirm is checked first; the size limit is checked immediately after.
+
+    A request with a bad confirm AND an oversized list must fail on the confirm
+    check, because that is validated first.  This ensures the checks are ordered
+    correctly (confirm → size → dedup → loop).
+    """
+    from routes.runs import BULK_MAX_PROJECT_IDS
+
+    oversized = [f"fake-project-{i}" for i in range(BULK_MAX_PROJECT_IDS + 1)]
+    response = client.post(
+        "/runs/bulk",
+        data={"project_ids": oversized},   # no confirm field
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    # Must be the confirm error, not the size error.
+    assert "confirmed explicitly" in response.json()["detail"]
+
+
+def test_bulk_run_size_check_fires_before_the_loop(client, monkeypatch):
+    """Verify the size guard short-circuits BEFORE any outbound API calls are
+    made.  If the loop ran even once for an oversized batch, get_project would
+    be called; patching it to record calls proves it was never reached.
+    """
+    from routes.runs import BULK_MAX_PROJECT_IDS
+    import routes.runs as runs_module
+
+    calls = []
+
+    class _SpyClient:
+        def get_project(self, project_id):
+            calls.append(project_id)
+            raise RuntimeError("should not be reached")
+
+    monkeypatch.setattr(runs_module, "get_client", lambda: _SpyClient())
+
+    oversized = [f"fake-project-{i}" for i in range(BULK_MAX_PROJECT_IDS + 1)]
+    response = client.post(
+        "/runs/bulk",
+        data={"project_ids": oversized, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert calls == [], "get_project must not be called for an oversized batch"
+
+
+def test_a_failure_in_one_bulk_project_does_not_affect_others(client, monkeypatch):
+    """Bulk needs no failure-isolation code of its own - `run_flow` already
+    never raises to its caller, and each project gets its own background task
+    and its own DB row. This proves that holds across two calls, not one."""
+    import routes.runs as runs_module
+    from store import FAILED
+
+    real_run_flow = runs_module.run_flow
+
+    def flaky_run_flow(run_id, project_id, store, client_, settings_):
+        if project_id == "fixture-payments-api":
+            store.update_run(run_id, status=FAILED, error="synthetic failure")
+            return
+        real_run_flow(run_id, project_id, store, client_, settings_)
+
+    monkeypatch.setattr(runs_module, "run_flow", flaky_run_flow)
+
+    response = client.post(
+        "/runs/bulk",
+        data={"project_ids": [WEBGOATNET, "fixture-payments-api"], "confirm": "yes"},
+        follow_redirects=False,
+    )
+    batch_url = response.headers["location"]
+    status = wait_for_batch(client, batch_url)
+    assert status["completed"] == 1
+    assert status["failed"] == 1
+    failed = [r for r in status["runs"] if r["status"] == "failed"][0]
+    assert failed["error"] == "synthetic failure"
+
+
+def test_a_real_pipeline_failure_leaves_its_partial_fa_project_in_place(client, monkeypatch):
+    """Fails inside the real run_flow (at create-scan, after the _FA project,
+    config, and archive upload already happened) rather than bypassing the
+    flow like the test above does. Verifies the batch isolates the failure
+    AND that the partially-created _FA project is left in place, not rolled
+    back or cleaned up - the GAP flagged in GOAL_FIX_BULK_ANALYSIS.md."""
+    from cx.fixtures import FixtureClient
+    from routes.deps import get_client
+
+    real_create_scan = FixtureClient.create_scan
+    failing_fa_id = "fixture-acme/payments-api_FA"
+
+    def flaky_create_scan(self, payload):
+        if payload["project"]["id"] == failing_fa_id:
+            raise RuntimeError("synthetic scan-creation failure")
+        return real_create_scan(self, payload)
+
+    monkeypatch.setattr(FixtureClient, "create_scan", flaky_create_scan)
+
+    response = client.post(
+        "/runs/bulk",
+        data={
+            "project_ids": [WEBGOATNET, "fixture-payments-api", "fixture-storefront"],
+            "confirm": "yes",
+        },
+        follow_redirects=False,
+    )
+    batch_url = response.headers["location"]
+    status = wait_for_batch(client, batch_url)
+
+    assert status["total"] == 3
+    assert status["completed"] == 2
+    assert status["failed"] == 1
+    failed = [r for r in status["runs"] if r["status"] == "failed"][0]
+    assert "synthetic scan-creation failure" in failed["error"]
+
+    # The batch detail page renders cleanly with the mixed outcome, not a crash.
+    page = client.get(batch_url).text
+    assert "1 failed" in page
+
+    # The partially-created _FA project was left in place, not cleaned up.
+    assert get_client().get_project(failing_fa_id)["id"] == failing_fa_id
+
+
+def test_bulk_runs_overlap_but_never_exceed_5_in_flight(client, monkeypatch):
+    """Regression for GOAL_FIX_BULK_ANALYSIS.md FIX 4: `start_bulk_run` used
+    to hand each project to FastAPI's `BackgroundTasks`, whose `__call__` is
+    `for task in self.tasks: await task()` - a for-loop that awaits each task
+    to completion before starting the next, so nothing in a "parallel" batch
+    ever actually overlapped. This instruments the real `run_flow` (not a
+    stand-in) to record how many projects are executing at once, across a
+    batch of 8 - comfortably past the 5-in-flight cap - and asserts the peak
+    never exceeds it while also proving it is not silently back to fully
+    serial (peak of 1)."""
+    import threading
+
+    import routes.runs as runs_module
+
+    real_run_flow = runs_module.run_flow
+    lock = threading.Lock()
+    state = {"current": 0, "peak": 0}
+
+    def instrumented_run_flow(run_id, project_id, store, client_, settings_):
+        with lock:
+            state["current"] += 1
+            state["peak"] = max(state["peak"], state["current"])
+        try:
+            # Held briefly so overlapping calls actually overlap in wall time
+            # rather than racing through in whichever order the pool happens
+            # to schedule them.
+            time.sleep(0.05)
+            real_run_flow(run_id, project_id, store, client_, settings_)
+        finally:
+            with lock:
+                state["current"] -= 1
+
+    monkeypatch.setattr(runs_module, "run_flow", instrumented_run_flow)
+
+    project_ids = [
+        WEBGOATNET,
+        "fixture-payments-api",
+        "fixture-storefront",
+        "fixture-auth-service",
+        "fixture-internal-tools",
+        "fixture-legacy-billing",
+        "fixture-mobile-api",
+        "fixture-legacy-uploader",
+    ]
+    response = client.post(
+        "/runs/bulk",
+        data={"project_ids": project_ids, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    batch_url = response.headers["location"]
+    status = wait_for_batch(client, batch_url, attempts=200)
+
+    assert status["total"] == len(project_ids)
+    assert status["completed"] == len(project_ids)
+    assert 2 <= state["peak"] <= 5
+
+
+def test_completed_bulk_runs_appear_in_recent_runs_tagged_with_their_batch(client):
+    response = client.post(
+        "/runs/bulk", data={"project_ids": [WEBGOATNET], "confirm": "yes"},
+        follow_redirects=False,
+    )
+    batch_url = response.headers["location"]
+    wait_for_batch(client, batch_url)
+
+    page = client.get("/runs").text
+    assert "rmarquez/WebGoatNet" in page
+    assert f'href="{batch_url}"' in page
+
+
+def test_unknown_batch_is_a_404(client):
+    assert client.get("/runs/bulk/deadbeef").status_code == 404
+    assert client.get("/runs/bulk/deadbeef/status").status_code == 404
+
+
+def test_the_projects_list_offers_a_bulk_checkbox_per_eligible_row(client):
+    client.post("/portfolio/refresh")
+    page = client.get("/").text
+    assert 'id="select-all"' in page
+    assert 'id="bulk-bar"' in page
+    assert 'id="bulk-confirm"' in page
+    # An eligible row gets a live checkbox the user can act on.
+    assert f'data-project-id="{WEBGOATNET}"' in page
+    # An ineligible row (no baseline) gets a disabled one with its reason.
+    row = page[page.index(NO_SAST_NAME) - 400 : page.index(NO_SAST_NAME)]
+    assert 'class="bulk-select" disabled' in row
+    assert "No completed SAST scan to use as a baseline" in row
+
+
+def test_the_bulk_confirmation_checkbox_gates_the_bulk_submit_button(client):
+    client.post("/portfolio/refresh")
+    page = client.get("/").text
+    assert '<button type="submit" id="bulk-confirm-submit" disabled>' in page
+    assert 'id="bulk-confirm-confirm-cb"' in page
+
+
+def test_the_single_project_modal_is_unchanged_by_the_shared_modal_refactor(client):
+    """The refactor into a shared, parameterized component must not touch the
+    single-project page's behavior: no checkbox, Create enabled immediately."""
+    page = client.get(f"/projects/{WEBGOATNET}").text
+    assert "confirm-checkbox" not in page
+    assert '<button type="submit" id="confirm-submit">' in page
+    assert "Create rmarquez/WebGoatNet_FA and scan" in page
+
+
+def test_the_bulk_bar_hides_at_zero_selection_in_css_not_just_js(client):
+    """The JS already sets `.hidden = count === 0` (index.html); the actual
+    defect was CSS: `.bulk-action-bar { display: flex }` silently overrode the
+    browser's own `[hidden]{display:none}` rule. Guards that override rule
+    since there is no browser/Playwright harness in this suite to check the
+    rendered style directly."""
+    css = (ROOT / "static" / "app.css").read_text()
+    assert ".bulk-action-bar[hidden] { display: none; }" in css
+
+
+def test_the_single_project_modal_uses_grammatical_singular_copy(client):
+    """N=1 must read as standard English, not the plural-only copy the shared
+    modal was written for (`.bulk-count` design note in _confirm_modal.html).
+    The count and its noun render as separate elements (so bulk's JS can
+    patch each independently), so this checks the rendered `.bulk-noun` spans
+    rather than a plain-English substring."""
+    import re
+
+    page = client.get(f"/projects/{WEBGOATNET}").text
+    project_nouns = re.findall(
+        r'data-singular="project" data-plural="projects">([^<]+)<', page
+    )
+    scan_nouns = re.findall(
+        r'data-singular="scan" data-plural="scans">([^<]+)<', page
+    )
+    assert project_nouns == ["project"] * len(project_nouns)
+    assert scan_nouns == ["scan"] * len(scan_nouns)
+    assert len(project_nouns) >= 2  # aggregate line + collapsible summary
+    assert len(scan_nouns) >= 1
 
 
 # --- Phase 3: tabs, settings tab, run list, re-base indicator ----------------

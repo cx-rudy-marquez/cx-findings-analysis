@@ -1,0 +1,98 @@
+{# Shared "this creates real resources" confirmation dialog.
+
+   Used by the single-project page (one project, no checkbox, Create enabled
+   immediately) and the bulk-analyze flow (N projects, a required checkbox
+   gating Create). `require_confirmation_checkbox` is an explicit parameter
+   rather than inferred from `projects|length`, so the two callers' behavior
+   is easy to reason about and test independently of how many projects either
+   one happens to pass. Showing this same aggregate-summary/collapsible-list
+   UI for the single-project page's N=1 case (rather than a stripped-down
+   modal of its own) was confirmed intentional in GOAL_FIX_BULK_ANALYSIS.md
+   FIX 3 - do not revert to a separate single-project appearance without
+   discussion.
+
+   Every project count in the copy is wrapped in a `.bulk-count` span so the
+   bulk caller - which renders this shell once with a placeholder project list
+   and fills in the real selection client-side - can patch the numbers in
+   after the user opens it, without re-rendering any Jinja. Every noun next to
+   a count is wrapped in a `.bulk-noun` span carrying `data-singular`/
+   `data-plural`, rendered via the `pluralize` Jinja global (routes/deps.py)
+   so N=1 reads grammatically; the bulk caller's JS flips the same spans'
+   text when it patches the numbers in, so its client-side path matches.
+
+   The caller supplies its own hidden inputs (project_id vs. repeated
+   project_ids) via {% call %}, since that is the one place the two forms
+   genuinely differ in shape. #}
+{% macro confirm_modal(dialog_id, projects, require_confirmation_checkbox, form_action, submit_label, findings_analysis_key) %}
+<dialog id="{{ dialog_id }}">
+  <form method="post" action="{{ form_action }}">
+    <h2>This creates real resources</h2>
+    <p class="note">Confirming will, for each selected project, in order:</p>
+    <ul>
+      <li>Download the source archive from its baseline scan</li>
+      <li>Create a new project named <code>&lt;project&gt;_FA</code>, tagged <code>purpose=findings-analysis-poc</code></li>
+      <li>Set <code>{{ findings_analysis_key }}</code> to true on it, and read the value back to confirm it stuck</li>
+      <li>Upload the archive and start one full SAST scan</li>
+    </ul>
+    <p class="note">
+      Nothing about your existing projects is modified. Every <code>_FA</code> project is left
+      behind so you can audit its scan logs, and is safe to delete afterwards.
+    </p>
+    <p class="note">
+      <strong class="bulk-count">{{ projects|length }}</strong>
+      <span class="bulk-noun" data-singular="project" data-plural="projects">{{ pluralize(projects|length, "project", "projects") }}</span> selected —
+      <strong class="bulk-count">{{ projects|length }}</strong> new <code>_FA</code>
+      <span class="bulk-noun" data-singular="project" data-plural="projects">{{ pluralize(projects|length, "project", "projects") }}</span> will be created,
+      <strong class="bulk-count">{{ projects|length }}</strong>
+      <span class="bulk-noun" data-singular="scan" data-plural="scans">{{ pluralize(projects|length, "scan", "scans") }}</span> will be started.
+    </p>
+
+    <details class="project-list">
+      <summary>Show <span class="bulk-count">{{ projects|length }}</span>
+        <span class="bulk-noun" data-singular="project" data-plural="projects">{{ pluralize(projects|length, "project", "projects") }}</span> &#9662;</summary>
+      <ul class="project-list-items">
+        {% for p in projects %}
+        <li>{{ p.name }} &rarr; <strong>{{ p.fa_name }}</strong></li>
+        {% endfor %}
+      </ul>
+    </details>
+
+    {% if require_confirmation_checkbox %}
+    <label class="field confirm-checkbox">
+      <input type="checkbox" id="{{ dialog_id }}-confirm-cb">
+      I understand this will create <span class="bulk-count">{{ projects|length }}</span> new
+      <span class="bulk-noun" data-singular="project" data-plural="projects">{{ pluralize(projects|length, "project", "projects") }}</span> and run
+      <span class="bulk-count">{{ projects|length }}</span> real
+      <span class="bulk-noun" data-singular="scan" data-plural="scans">{{ pluralize(projects|length, "scan", "scans") }}</span>.
+    </label>
+    {% endif %}
+
+    {{ caller() }}
+
+    <input type="hidden" name="confirm" value="yes">
+    <div class="dialog-actions">
+      <button type="button" class="secondary" onclick="document.getElementById('{{ dialog_id }}').close()">Cancel</button>
+      <button type="submit" id="{{ dialog_id }}-submit"{% if require_confirmation_checkbox %} disabled{% endif %}>{{ submit_label }}</button>
+      <p class="note busy-note">
+        Checking Checkmarx for an existing copy, then creating the project(s).
+        The scan(s) run in the background — you will be taken to a page that follows progress.
+      </p>
+    </div>
+  </form>
+</dialog>
+
+{% if require_confirmation_checkbox %}
+<script>
+(function () {
+  "use strict";
+  var checkbox = document.getElementById({{ (dialog_id ~ "-confirm-cb") | tojson }});
+  var submit = document.getElementById({{ (dialog_id ~ "-submit") | tojson }});
+  if (checkbox && submit) {
+    checkbox.addEventListener("change", function () {
+      submit.disabled = !checkbox.checked;
+    });
+  }
+})();
+</script>
+{% endif %}
+{% endmacro %}

@@ -20,6 +20,41 @@ from store import Store
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
 
 
+def pluralize(count: int, singular: str, plural: str | None = None) -> str:
+    """Standard English pluralization for count-dependent modal copy.
+
+    Registered as a Jinja global so both server-rendered callers of the
+    shared confirm modal (single-project N=1, bulk's static shell) get
+    correct grammar without duplicating the singular/plural branch.
+    """
+    return singular if count == 1 else (plural or f"{singular}s")
+
+
+templates.env.globals["pluralize"] = pluralize
+
+
+def phase_timeline(timestamps: dict) -> str:
+    """One compact tooltip string from a run's phase timestamps, skipping any
+    phase not yet reached.
+
+    Backs the Bulk Run view's per-row tooltip (GOAL_FIX_BULK_ANALYSIS.md
+    FIX 4's "clearer, more granular phase logging/timestamps"), so a batch's
+    actual concurrency is readable on the page instead of inferred from UI
+    polling snapshots. Mirrored in JS (templates/run_bulk.html) for the poller
+    that replaces these rows client-side.
+    """
+    labels = (
+        ("created", timestamps.get("created_at")),
+        ("download started", timestamps.get("download_started_at")),
+        ("scan started", timestamps.get("scan_started_at")),
+        ("completed", timestamps.get("completed_at")),
+    )
+    return " · ".join(f"{label} {value}" for label, value in labels if value)
+
+
+templates.env.globals["phase_timeline"] = phase_timeline
+
+
 @lru_cache(maxsize=1)
 def get_client():
     if settings.use_fixtures:

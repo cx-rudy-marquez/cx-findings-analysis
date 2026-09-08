@@ -336,6 +336,36 @@ def test_visible_rows_drops_both_kinds_and_keeps_the_rest():
     assert [r.name for r in visible_rows(rows)] == ["acme/keep"]
 
 
+# --- Bulk Analyze: which rows can be selected for a run ----------------------
+
+from analysis.portfolio import NO_BASELINE, ineligibility_reason  # noqa: E402
+
+
+def test_a_project_without_a_baseline_is_not_eligible_for_a_run():
+    assert ineligibility_reason(row(name="acme/x", counts=None)) == NO_BASELINE
+
+
+def test_an_already_enabled_project_is_not_eligible_for_a_run():
+    assert (
+        ineligibility_reason(row(name="acme/x", counts=counts(), findings_analysis_enabled=True))
+        == ALREADY_ENABLED
+    )
+
+
+def test_a_converted_original_is_not_eligible_for_a_run():
+    assert ineligibility_reason(row(name="acme/x_FA_BACKUP", counts=counts())) == CONVERTED_ORIGINAL
+
+
+def test_an_ordinary_project_with_a_baseline_is_eligible_for_a_run():
+    assert ineligibility_reason(row(name="acme/x", counts=counts())) is None
+
+
+def test_exclusion_is_reported_ahead_of_a_missing_baseline():
+    """A converted original with no baseline still explains itself by what it is."""
+    excluded = row(name="acme/x_FA_BACKUP", counts=None)
+    assert ineligibility_reason(excluded) == CONVERTED_ORIGINAL
+
+
 def test_the_flag_survives_the_snapshot_round_trip():
     stored = rows_to_json([row(name="x", findings_analysis_enabled=True)])
     assert rows_from_json(stored)[0].findings_analysis_enabled is True

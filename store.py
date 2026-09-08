@@ -62,6 +62,21 @@ CREATE TABLE IF NOT EXISTS run_steps (
 
 CREATE INDEX IF NOT EXISTS idx_run_steps_run ON run_steps(run_id, id);
 
+-- One row per bulk-analyze submission. `dropped_json` records projects that
+-- failed live re-validation at confirm time and were never given a run - kept
+-- here, not in `runs`, because they never got an id in that table.
+-- No `status` column: aggregate progress is computed live from the batch's
+-- child runs on every read (`Store.list_runs_for_batch`), which avoids N
+-- concurrent background threads racing to write "am I the last one done" into
+-- a single row.
+CREATE TABLE IF NOT EXISTS run_batches (
+    id            TEXT PRIMARY KEY,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    project_count INTEGER NOT NULL,
+    dropped_json  TEXT
+);
+
 -- Portfolio snapshot. One row, replaced wholesale on refresh: this is a cache
 -- of an expensive read, not a history worth keeping.
 CREATE TABLE IF NOT EXISTS portfolio_snapshot (
@@ -155,6 +170,7 @@ class Store:
             "reonboard_status",
             "reonboard_plan",
             "reonboard_result",
+            "batch_id",
         ):
             if column not in existing:
                 conn.execute(f"ALTER TABLE runs ADD COLUMN {column} TEXT")
@@ -171,6 +187,7 @@ class Store:
         minutes_per_finding: int,
         is_synthetic: bool = False,
         status: str = PENDING,
+        batch_id: str | None = None,
     ) -> str:
         run_id = uuid.uuid4().hex
         now = _now()
@@ -180,13 +197,13 @@ class Store:
                 INSERT INTO runs (
                     id, created_at, updated_at, is_synthetic, status, phase,
                     source_project_id, source_project_name, baseline_scan_id,
-                    baseline_branch, minutes_per_finding
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                    baseline_branch, minutes_per_finding, batch_id
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     run_id, now, now, int(is_synthetic), status, "created",
                     source_project_id, source_project_name, baseline_scan_id,
-                    baseline_branch, minutes_per_finding,
+                    baseline_branch, minutes_per_finding, batch_id,
                 ),
             )
             conn.commit()
@@ -259,6 +276,37 @@ class Store:
             ).fetchone()
         return _decode_run(row) if row else None
 
+    # -- run batches ------------------------------------------------------------
+
+    def create_batch(self, project_count: int, dropped: list[dict]) -> str:
+        """A bulk-analyze submission. `dropped` is written once and never changed."""
+        batch_id = uuid.uuid4().hex
+        now = _now()
+        with _write_lock, self._connect() as conn:
+            conn.execute(
+                "INSERT INTO run_batches (id, created_at, updated_at, "
+                "project_count, dropped_json) VALUES (?,?,?,?,?)",
+                (batch_id, now, now, project_count, json.dumps(dropped)),
+            )
+            conn.commit()
+        return batch_id
+
+    def get_batch(self, batch_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM run_batches WHERE id = ?", (batch_id,)
+            ).fetchone()
+        return _decode_batch(row) if row else None
+
+    def list_runs_for_batch(self, batch_id: str) -> list[dict]:
+        """A batch's runs, oldest first - a progress list reads top to bottom."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM runs WHERE batch_id = ? ORDER BY created_at ASC",
+                (batch_id,),
+            ).fetchall()
+        return [_decode_run(row) for row in rows]
+
     # -- portfolio ------------------------------------------------------------
 
     def save_snapshot(self, rows: list[dict]) -> str:
@@ -327,6 +375,22 @@ class Store:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_step_timestamps(self, run_id: str) -> dict[str, str]:
+        """Earliest timestamp per step name for one run.
+
+        Lets a caller answer "when did this project start downloading its
+        archive / start its scan" directly from the journal already written by
+        every step, rather than a new column per phase or inferring it from
+        polling snapshots (GOAL_FIX_BULK_ANALYSIS.md FIX 4).
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT step, MIN(at) AS at FROM run_steps "
+                "WHERE run_id = ? GROUP BY step",
+                (run_id,),
+            ).fetchall()
+        return {row["step"]: row["at"] for row in rows}
+
 
 def _decode_run(row: sqlite3.Row) -> dict:
     run = dict(row)
@@ -335,3 +399,9 @@ def _decode_run(row: sqlite3.Row) -> dict:
         raw = run.get(column)
         run[column] = json.loads(raw) if raw else None
     return run
+
+
+def _decode_batch(row: sqlite3.Row) -> dict:
+    batch = dict(row)
+    batch["dropped"] = json.loads(batch.pop("dropped_json") or "[]")
+    return batch
