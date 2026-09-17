@@ -7,7 +7,7 @@
     <a href="/runs/{{ run.id }}">Back to the comparison</a>
     &nbsp;·&nbsp;<span class="badge badge-beta">Beta</span>
   </p>
-  <h2>Re-onboard {{ run.source_project_name }}</h2>
+  <h1>Re-onboard {{ run.source_project_name }}</h1>
 
   {% if error %}
     <div class="callout callout-danger">{{ error }}</div>
@@ -114,7 +114,7 @@
       <div class="scroll-x">
         <table class="portfolio">
           <thead>
-            <tr><th></th><th>Call</th><th>Target</th><th>Effect</th></tr>
+            <tr><th scope="col"></th><th scope="col">Call</th><th scope="col">Target</th><th scope="col">Effect</th></tr>
           </thead>
           <tbody>
             {% for step in plan.steps %}

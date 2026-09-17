@@ -4,7 +4,7 @@
 
 <section>
   <p class="eyebrow"><a href="/">All projects</a></p>
-  <h2>Bulk Findings Analysis run</h2>
+  <h1>Bulk Findings Analysis run</h1>
 
   <p class="phase" id="batch-summary">
     {{ batch_runs|selectattr("status", "equalto", "completed")|list|length }} of
@@ -29,10 +29,10 @@
       <table class="portfolio">
         <thead>
           <tr>
-            <th>Project</th>
-            <th>Status</th>
-            <th>Phase</th>
-            <th></th>
+            <th scope="col">Project</th>
+            <th scope="col">Status</th>
+            <th scope="col">Phase</th>
+            <th scope="col"></th>
           </tr>
         </thead>
         <tbody id="batch-rows">

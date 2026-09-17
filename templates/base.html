@@ -4,39 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Findings Analysis Impact{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
+  <a href="#main-content" class="skip-link">Skip to content</a>
+  {% include "_workspace.html" %}
   <div class="wrap">
-    <header class="masthead">
-      <h1><a href="/">Findings Analysis Impact</a></h1>
-      <span class="spacer"></span>
-      {% if demo_mode %}
-        <span class="badge badge-sample" title="Numbers on this page are illustrative, not measured">Sample data</span>
-      {% else %}
-        <span class="meta">tenant {{ tenant }}</span>
-      {% endif %}
-    </header>
-
-    <nav class="tabs no-print" aria-label="Main">
-      <a href="/" class="tab{% if tab == 'projects' %} tab-active{% endif %}"
-         {% if tab == 'projects' %}aria-current="page"{% endif %}>Projects</a>
-      <a href="/runs" class="tab{% if tab == 'runs' %} tab-active{% endif %}"
-         {% if tab == 'runs' %}aria-current="page"{% endif %}>Recent runs</a>
-      <a href="/settings" class="tab tab-icon{% if tab == 'settings' %} tab-active{% endif %}"
-         {% if tab == 'settings' %}aria-current="page"{% endif %}
-         aria-label="Settings" title="Scoring &amp; risk settings">
-        {# Inline so the icon needs no asset request and inherits currentColor. #}
-        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false"
-             fill="none" stroke="currentColor" stroke-width="1.7"
-             stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"></circle>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.2.5.66.85 1.2.91H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-        </svg>
-      </a>
-    </nav>
-
-    {% block content %}{% endblock %}
+    <main id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
   </div>
 
   {# Progress feedback for actions that are slow for honest reasons: building
@@ -129,6 +106,7 @@
   })();
   </script>
 
+  <script src="/static/workspace.js" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

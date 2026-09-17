@@ -4,7 +4,7 @@
 
 <section>
   <p class="eyebrow">{{ run.source_project_name }} → {{ run.fa_project_name or (run.source_project_name ~ fa_suffix) }}</p>
-  <h2>Findings Analysis run</h2>
+  <h1>Findings Analysis run</h1>
 
   <p class="phase {% if not run.status in ['completed', 'failed', 'canceled'] %}pulse{% endif %}" id="phase">
     {{ run.phase or run.status }}
