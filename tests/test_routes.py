@@ -4,6 +4,7 @@ These are the checks that catch a broken template or a wrong context key -
 things the unit tests cannot see because they never render anything.
 """
 
+import re
 import time
 
 import pytest
@@ -797,15 +798,16 @@ def test_every_page_carries_the_tab_bar(client):
 
 
 def test_the_active_tab_is_marked_on_each_page(client):
-    assert 'class="tab tab-active"' in client.get("/").text
-    assert '<a href="/runs" class="tab tab-active"' in client.get("/runs").text
-    assert "tab tab-icon tab-active" in client.get("/settings").text
+    for path in ("/", "/runs", "/settings"):
+        page = client.get(path).text
+        active = re.findall(r'<a href="([^"]+)"[^>]*aria-current="page"', page)
+        assert active == [path]
 
 
 def test_a_project_page_belongs_to_the_projects_tab(client):
     """A path the tab does not share must still light the right tab."""
     page = client.get(f"/projects/{WEBGOATNET}").text
-    assert '<a href="/" class="tab tab-active"' in page
+    assert re.findall(r'<a href="([^"]+)"[^>]*aria-current="page"', page) == ["/"]
 
 
 def test_the_settings_panel_left_the_projects_page(client):
@@ -817,8 +819,8 @@ def test_the_settings_panel_left_the_projects_page(client):
 
 def test_the_run_list_left_the_projects_page(client):
     client.post("/portfolio/refresh")
-    assert "Recent runs</h2>" not in client.get("/").text
-    assert "Recent runs</h2>" in client.get("/runs").text
+    assert "Recent runs</h1>" not in client.get("/").text
+    assert "Recent runs</h1>" in client.get("/runs").text
 
 
 def test_an_empty_run_list_explains_itself(client):

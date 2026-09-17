@@ -5,7 +5,7 @@
 
 <section>
   <p class="eyebrow"><a href="/">All projects</a></p>
-  <h2>{{ project.name }}</h2>
+  <h1>{{ project.name }}</h1>
 
   {% if error %}
     <div class="callout callout-danger">{{ error }}</div>
@@ -36,7 +36,7 @@
     <div class="scroll-x">
       <table>
         <thead>
-          <tr><th>Severity</th><th class="num">Findings</th><th>Eligible for Findings Analysis</th></tr>
+          <tr><th scope="col">Severity</th><th scope="col" class="num">Findings</th><th scope="col">Eligible for Findings Analysis</th></tr>
         </thead>
         <tbody>
           {% for severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] %}
@@ -86,8 +86,9 @@
     {% else %}
       <div class="no-print" style="margin-top:2rem">
         <button type="button" onclick="document.getElementById('confirm').showModal()">
-          Test Findings Analysis on this project
+          Test Findings Analysis
         </button>
+        <p class="note">Test Findings Analysis on this project.</p>
       </div>
 
       {% call modal.confirm_modal(

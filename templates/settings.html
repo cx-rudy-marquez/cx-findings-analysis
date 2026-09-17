@@ -4,8 +4,8 @@
 
 <section>
   <p class="eyebrow">Configuration</p>
-  <h2>Scoring &amp; risk settings{% if tuning_customised %}
-    <span class="badge badge-sample">Customised</span>{% endif %}</h2>
+  <h1>Scoring &amp; risk settings{% if tuning_customised %}
+    <span class="badge badge-sample">Customised</span>{% endif %}</h1>
   <p class="note">
     Every value here is a judgement call, not a fact about the platform, which is why
     none of them is hardcoded. Re-scoring uses the stored snapshot — changing a weight
@@ -13,7 +13,7 @@
   </p>
 
   <div class="panel">
-    <form method="post" action="/portfolio/settings" class="tuning-form">
+    <form method="post" action="/portfolio/settings" class="tuning-form" id="settings-form">
       <fieldset>
         <legend>Opportunity weights</legend>
         <label>High <input type="number" name="weight_high" min="0" max="100" value="{{ tuning.weight_high }}"></label>
@@ -41,14 +41,14 @@
           <input type="number" name="rebase_stale_days" min="1" max="3650" value="{{ tuning.rebase_stale_days }}"> days
         </label>
       </fieldset>
-      <div class="tuning-actions">
-        <button type="submit">Save</button>
-      </div>
     </form>
 
+    <div class="tuning-actions">
+    <button type="submit" form="settings-form">Save</button>
     <form method="post" action="/portfolio/settings/reset">
       <button type="submit" class="secondary">Reset to defaults</button>
     </form>
+    </div>
   </div>
 
   <h3>What each setting decides</h3>

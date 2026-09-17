@@ -12,7 +12,7 @@
 {# A severity count. Zero is deliberately not a pill: a tinted 0 reads as a
    signal, and the absence of findings at a severity is not one. #}
 {% macro count_cell(value, severity) -%}
-  <td class="num">
+  <td class="num{% if severity == 'info' %} optional-column{% endif %}">
     {%- if value %}<span class="count-pill count-{{ severity }}">{{ value }}</span>
     {%- else %}<span class="count-zero">0</span>{% endif -%}
   </td>
@@ -29,7 +29,7 @@
 
 <section>
   <p class="eyebrow">Step one</p>
-  <h2>Which projects would benefit most?</h2>
+  <h1>Which projects would benefit most?</h1>
   <p class="note">
     Each project's baseline is its most recent completed scan <em>that actually ran the
     SAST engine</em> — not simply its most recent scan. A run labelled “Full Scan” may
@@ -91,29 +91,31 @@
     <button type="button" class="secondary" id="bulk-clear-btn">Clear selection</button>
   </div>
 
-  <div class="data-panel">
+  <div class="data-panel portfolio-panel">
     <div class="scroll-x">
       <table class="portfolio">
+        <caption class="visually-hidden">Projects ranked by Findings Analysis opportunity, baseline findings, scan history and migration risk.</caption>
+        <colgroup><col class="select-column"><col class="project-column"><col><col><col><col><col class="optional-column"><col><col><col class="branches-column optional-column"><col class="baseline-column"><col class="migration-column"></colgroup>
         <thead>
           <tr>
-            <th><input type="checkbox" id="select-all" aria-label="Select all eligible projects"></th>
-            <th>{{ sort_link("name", "Project", sort, query) }}</th>
-            <th class="num ineligible-col" title="Findings Analysis never evaluates Critical results, so Critical is excluded from the opportunity score">
+            <th scope="col"><input type="checkbox" id="select-all" aria-label="Select all projects"></th>
+            <th scope="col" aria-sort="{{ 'ascending' if sort == 'name' else 'none' }}">{{ sort_link("name", "Project", sort, query) }}</th>
+            <th scope="col" class="num ineligible-col" title="Findings Analysis never evaluates Critical results, so Critical is excluded from the opportunity score" aria-sort="{{ 'descending' if sort == 'critical' else 'none' }}">
               {{ sort_link("critical", "Crit", sort, query) }}
             </th>
-            <th class="num">High</th>
-            <th class="num">Med</th>
-            <th class="num">Low</th>
+            <th scope="col" class="num">High</th>
+            <th scope="col" class="num">Med</th>
+            <th scope="col" class="num">Low</th>
             {# Displayed, not sortable: the score already absorbs it, and the
                columns that earn a sort are the ones a reviewer ranks on. #}
-            <th class="num">Info</th>
-            <th class="num">{{ sort_link("score", "Score", sort, query) }}</th>
-            <th class="num">{{ sort_link("scans", "Scans", sort, query) }}</th>
-            <th class="num">{{ sort_link("branches", "Branches", sort, query) }}</th>
-            <th title="Age of the scan every figure on this row is measured against">
+            <th scope="col" class="num optional-column">Info</th>
+            <th scope="col" class="num" aria-sort="{{ 'descending' if sort == 'score' else 'none' }}">{{ sort_link("score", "Score", sort, query) }}</th>
+            <th scope="col" class="num" aria-sort="{{ 'descending' if sort == 'scans' else 'none' }}">{{ sort_link("scans", "Scans", sort, query) }}</th>
+            <th scope="col" class="num optional-column" aria-sort="{{ 'descending' if sort == 'branches' else 'none' }}">{{ sort_link("branches", "Branches", sort, query) }}</th>
+            <th scope="col" title="Age of the scan every figure on this row is measured against" aria-sort="{{ 'ascending' if sort == 'baseline' else 'none' }}">
               {{ sort_link("baseline", "Baseline", sort, query) }}
             </th>
-            <th>{{ sort_link("risk", "Migration", sort, query) }}</th>
+            <th scope="col" aria-sort="{{ 'ascending' if sort == 'risk' else 'none' }}">{{ sort_link("risk", "Migration", sort, query) }}</th>
           </tr>
         </thead>
         <tbody>
@@ -122,16 +124,16 @@
           <tr class="{% if row.flagged %}flagged{% endif %}{% if row.rebase_recommended %} stale-baseline{% endif %}">
             <td>
               {% if reason %}
-              <input type="checkbox" class="bulk-select" disabled title="{{ reason }}">
+              <input type="checkbox" class="bulk-select" disabled title="{{ reason }}" aria-label="Select {{ row.name }}">
               {% else %}
-              <input type="checkbox" class="bulk-select"
+              <input type="checkbox" class="bulk-select" aria-label="Select {{ row.name }}"
                      data-project-id="{{ row.id }}"
                      data-project-name="{{ row.name }}"
                      data-fa-name="{{ row.name }}{{ fa_suffix }}">
               {% endif %}
             </td>
             <td class="project-name">
-              <a href="/projects/{{ row.id }}">{{ row.name }}</a>
+              <a href="/projects/{{ row.id }}" title="{{ row.name }}">{{ row.name }}</a>
               {% if row.analysed %}
                 <span class="badge badge-analysed"
                       title="Already analysed — {{ row.name }}_FA exists in Checkmarx. Opens the existing comparison.">Analysed</span>
@@ -151,10 +153,11 @@
               {{ count_cell(row.counts.get("INFO", 0), "info") }}
               <td class="num score">{{ row.score }}</td>
             {% else %}
-              <td class="num note" colspan="6" title="{{ row.note }}">{{ row.note }}</td>
+              <td class="num note baseline-note" colspan="6" title="{{ row.note }}">{{ row.note }}</td>
+              <td class="num note baseline-note-compact" colspan="5" title="{{ row.note }}">{{ row.note }}</td>
             {% endif %}
             <td class="num">{{ row.scans }}</td>
-            <td class="num">{{ row.branches }}</td>
+            <td class="num optional-column">{{ row.branches }}</td>
             <td class="baseline-cell" title="{{ row.baseline_created_at or 'No baseline scan date' }}">
               <span class="baseline-age">{{ row.baseline_age_label }}</span>
               {% if row.rebase_recommended %}
@@ -225,6 +228,17 @@
   // of project ids, kept in sessionStorage because a filter or sort here is a
   // full page reload, not a client-side render - there is nowhere else to
   // hold it across that navigation.
+  var scrollArea = document.querySelector('.portfolio-panel .scroll-x');
+  if (scrollArea) {
+    function updateScrollEdges() {
+      scrollArea.parentElement.classList.toggle('can-scroll-left', scrollArea.scrollLeft > 1);
+      scrollArea.parentElement.classList.toggle('can-scroll-right', scrollArea.scrollLeft + scrollArea.clientWidth < scrollArea.scrollWidth - 1);
+    }
+    scrollArea.addEventListener('scroll', updateScrollEdges, { passive: true });
+    new ResizeObserver(updateScrollEdges).observe(scrollArea);
+    updateScrollEdges();
+  }
+
   var STORAGE_KEY = "bulk-selection";
 
   function loadSelection() {

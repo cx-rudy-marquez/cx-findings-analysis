@@ -19,7 +19,7 @@
             title="All {{ parity.total }} SAST settings are as expected, so the change below is attributable to Findings Analysis. The full comparison is in the audit trail.">Parameters match baseline</span>
     {% endif %}
   </p>
-  <h2>What you gain by re-onboarding</h2>
+  <h1>What you gain by re-onboarding</h1>
 
   {% for warning in warnings %}
     <div class="callout callout-warn">{{ warning }}</div>
@@ -118,13 +118,13 @@
     <table>
       <thead>
         <tr>
-          <th>Severity</th>
-          <th class="num">Before</th>
-          <th class="num">After</th>
-          <th class="num">Removed</th>
-          <th class="num">Appeared</th>
-          <th class="num">Reduction</th>
-          <th class="bar-cell"></th>
+          <th scope="col">Severity</th>
+          <th scope="col" class="num">Before</th>
+          <th scope="col" class="num">After</th>
+          <th scope="col" class="num">Removed</th>
+          <th scope="col" class="num">Appeared</th>
+          <th scope="col" class="num">Reduction</th>
+          <th scope="col" class="bar-cell"></th>
         </tr>
       </thead>
       <tbody>
@@ -186,7 +186,7 @@
   <div class="scroll-x">
     <table>
       <thead>
-        <tr><th>Query</th><th class="num">Removed</th><th class="num">In baseline</th><th class="num">Removal rate</th></tr>
+        <tr><th scope="col">Query</th><th scope="col" class="num">Removed</th><th scope="col" class="num">In baseline</th><th scope="col" class="num">Removal rate</th></tr>
       </thead>
       <tbody>
         {% for row in by_query %}
@@ -216,7 +216,7 @@
   <div class="scroll-x">
     <table>
       <thead>
-        <tr><th>CWE</th><th class="num">Removed</th><th class="num">In baseline</th><th class="num">Removal rate</th></tr>
+        <tr><th scope="col">CWE</th><th scope="col" class="num">Removed</th><th scope="col" class="num">In baseline</th><th scope="col" class="num">Removal rate</th></tr>
       </thead>
       <tbody>
         {% for row in by_cwe %}
@@ -281,10 +281,10 @@
     <table class="parity-table">
       <thead>
         <tr>
-          <th>SAST setting</th>
-          <th>{{ run.source_project_name }}</th>
-          <th>{{ run.fa_project_name }}</th>
-          <th></th>
+          <th scope="col">SAST setting</th>
+          <th scope="col">{{ run.source_project_name }}</th>
+          <th scope="col">{{ run.fa_project_name }}</th>
+          <th scope="col"></th>
         </tr>
       </thead>
       <tbody>
