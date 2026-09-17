@@ -30,12 +30,12 @@
 <section>
   <p class="eyebrow">Step one</p>
   <h1>Which projects would benefit most?</h1>
-  <p class="note">
+  <p class=”note note-wide”>
     Each project's baseline is its most recent completed scan <em>that actually ran the
     SAST engine</em> — not simply its most recent scan. A run labelled “Full Scan” may
     have executed SCA only and carry no SAST results at all.
   </p>
-  <p class="note">
+  <p class=”note note-wide”>
     Two kinds of project are left out, so the counts below describe what is still
     worth doing: originals a re-onboarding already converted (named
     <code>_FA_BACKUP</code>), and projects that already scan with Findings
@@ -197,7 +197,7 @@
     <div id="bulk-confirm-project-ids"></div>
   {% endcall %}
 
-  <p class="note" style="margin-top:1rem">
+  <p class="note note-wide" style="margin-top:1rem">
     <strong>Score</strong> is
     High&times;{{ tuning.weight_high }} + Medium&times;{{ tuning.weight_medium }} +
     Low&times;{{ tuning.weight_low }} + Info&times;{{ tuning.weight_info }}. Critical is
