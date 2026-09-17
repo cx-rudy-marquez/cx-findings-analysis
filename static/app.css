@@ -173,7 +173,6 @@ kbd { display: inline-flex; align-items: center; justify-content: center; height
   background: currentColor;
 }
 .badge-sample { color: var(--warn); background: var(--warn-soft); }
-.badge-live   { color: var(--accent); background: var(--accent-soft); }
 
 /* --- generic blocks ------------------------------------------------------ */
 

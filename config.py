@@ -154,7 +154,6 @@ class Settings:
     tenant: str = ""
     client_id: str = "ast-app"
     api_key: str = ""
-    use_fixtures: bool = False
     db_path: str = "data/findings_analysis.db"
     host: str = "127.0.0.1"
     port: int = 8060
@@ -179,7 +178,6 @@ class Settings:
             tenant=os.environ.get("CX_TENANT") or "",
             client_id=os.environ.get("CX_CLIENT_ID") or "ast-app",
             api_key=api_key,
-            use_fixtures=_env_bool("USE_FIXTURES", False),
             db_path=os.environ.get("CX_DB_PATH") or "data/findings_analysis.db",
             host=os.environ.get("APP_HOST") or "127.0.0.1",
             port=_env_int("APP_PORT", 8060),
@@ -247,18 +245,8 @@ class Settings:
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
-    @property
-    def fixtures_dir(self) -> pathlib.Path:
-        return ROOT / "fixtures"
-
     def missing_credentials(self) -> list[str]:
-        """Names of required credential variables that are absent.
-
-        Empty when fixtures are in use - demo mode is fully functional with no
-        tenant access at all, which is the point of it.
-        """
-        if self.use_fixtures:
-            return []
+        """Names of required credential variables that are absent."""
         required = {
             "CX_BASE_URL": self.base_url,
             "CX_AUTH_URL": self.auth_url,
@@ -275,7 +263,6 @@ class Settings:
             "tenant": self.tenant or "<unset>",
             "client_id": self.client_id,
             "api_key": "<set>" if self.api_key else "<unset>",
-            "use_fixtures": str(self.use_fixtures),
             "db_path": self.db_path,
         }
 

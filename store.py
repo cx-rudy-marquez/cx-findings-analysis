@@ -30,7 +30,6 @@ CREATE TABLE IF NOT EXISTS runs (
     id                 TEXT PRIMARY KEY,
     created_at         TEXT NOT NULL,
     updated_at         TEXT NOT NULL,
-    is_synthetic       INTEGER NOT NULL DEFAULT 0,
     status             TEXT NOT NULL,
     phase              TEXT,
     error              TEXT,
@@ -185,7 +184,6 @@ class Store:
         baseline_scan_id: str | None,
         baseline_branch: str | None,
         minutes_per_finding: int,
-        is_synthetic: bool = False,
         status: str = PENDING,
         batch_id: str | None = None,
     ) -> str:
@@ -195,13 +193,13 @@ class Store:
             conn.execute(
                 """
                 INSERT INTO runs (
-                    id, created_at, updated_at, is_synthetic, status, phase,
+                    id, created_at, updated_at, status, phase,
                     source_project_id, source_project_name, baseline_scan_id,
                     baseline_branch, minutes_per_finding, batch_id
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
-                    run_id, now, now, int(is_synthetic), status, "created",
+                    run_id, now, now, status, "created",
                     source_project_id, source_project_name, baseline_scan_id,
                     baseline_branch, minutes_per_finding, batch_id,
                 ),
@@ -394,7 +392,6 @@ class Store:
 
 def _decode_run(row: sqlite3.Row) -> dict:
     run = dict(row)
-    run["is_synthetic"] = bool(run.get("is_synthetic"))
     for column in JSON_COLUMNS:
         raw = run.get(column)
         run[column] = json.loads(raw) if raw else None

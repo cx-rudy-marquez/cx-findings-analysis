@@ -10,7 +10,6 @@ the potential reduction in triage effort.
 - Review changes by severity, query, and CWE.
 - Show scan configuration parity and an audit trail.
 - Rank projects by potential opportunity and migration risk.
-- Run with live API data or local fixture data.
 
 ## Requirements
 
@@ -30,16 +29,8 @@ uses a local SQLite database for run history and cached portfolio data.
 
 ## Run
 
-Live mode:
-
 ```bash
 .venv/bin/uvicorn app:app --reload --port 8060
-```
-
-Demo mode, without API credentials:
-
-```bash
-USE_FIXTURES=true .venv/bin/uvicorn app:app --port 8060
 ```
 
 Open <http://127.0.0.1:8060> in a browser.

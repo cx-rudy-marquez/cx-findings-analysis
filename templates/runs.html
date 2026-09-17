@@ -34,11 +34,6 @@
               {% if run.phase %}<span class="note">— {{ run.phase }}</span>{% endif %}
             </td>
             <td>
-              {% if run.is_synthetic %}
-                <span class="badge badge-sample">Sample</span>
-              {% else %}
-                <span class="badge badge-live">Live</span>
-              {% endif %}
               {% if run.batch_id %}
                 <a class="badge badge-batch" href="/runs/bulk/{{ run.batch_id }}" title="Part of a bulk run">Batch</a>
               {% endif %}

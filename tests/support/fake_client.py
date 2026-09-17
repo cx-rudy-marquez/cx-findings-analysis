@@ -1,26 +1,22 @@
-"""Demo-mode client: the same surface as `CxApiClient`, backed by a JSON file.
+"""Test-only stand-in for `CxApiClient`, backed by a JSON data file.
 
-Demo mode exists so the dashboard can be reviewed, screenshotted and presented
-without credentials and without creating anything in a tenant. The writes here
-are no-ops that return plausible ids; the scan "runs" through a few polls and
-completes.
-
-Every run this client produces is marked `is_synthetic`, and the UI badges it
-*Sample Data*. The baseline severity counts are real, taken from the WebGoatNet
-scan named in the fixture. The after-numbers are invented. That distinction is
-the whole reason the badge exists: a demo number must never be mistaken for a
-measured one.
+Used by `tests/test_routes.py` to drive the real ASGI app end-to-end without a
+live tenant. The writes here are no-ops that return plausible ids; the scan
+"runs" through a few polls and completes. The baseline severity counts are
+real, taken from the WebGoatNet scan named in the data file; the after-numbers
+are invented.
 """
 
 from __future__ import annotations
 
 import json
+import pathlib
 from typing import Any
 
 from config import Settings, settings as default_settings
 from cx.errors import CxApiError
 
-FIXTURE_FILE = "webgoatnet.json"
+DATA_FILE = pathlib.Path(__file__).resolve().parent / "webgoatnet.json"
 
 #: How many polls the fake scan spends Running before completing, so the live
 #: status panel can be exercised.
@@ -35,16 +31,15 @@ def _severity_counters(totals: dict[str, int]) -> list[dict]:
     ]
 
 
-class FixtureClient:
-    """Drop-in stand-in for CxApiClient. Read-only against a JSON fixture."""
+class FakeClient:
+    """Drop-in stand-in for CxApiClient. Read-only against a JSON data file."""
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or default_settings
-        path = self.settings.fixtures_dir / FIXTURE_FILE
-        self.data: dict[str, Any] = json.loads(path.read_text())
+        self.data: dict[str, Any] = json.loads(DATA_FILE.read_text())
         self._poll_counts: dict[str, int] = {}
-        # Seeded from the fixture so a base project answers with a real SAST
-        # configuration. Without it every parity check in demo mode would
+        # Seeded from the data file so a base project answers with a real SAST
+        # configuration. Without it every parity check under test would
         # compare two empty documents and report a perfect match.
         self._configs: dict[str, list[dict]] = {
             pid: list(params)
@@ -279,7 +274,7 @@ class FixtureClient:
     def iter_all_scans(self):
         """Synthesise the declared scan history, one row per scan.
 
-        Emitted as individual rows rather than as counts so demo mode exercises
+        Emitted as individual rows rather than as counts so the test exercises
         the same grouping code the live path uses.
         """
         for project in self.data["projects"]:
@@ -387,7 +382,7 @@ class FixtureClient:
         # A new project carries no project-level overrides, so
         # `/api/configuration/project` answers with the tenant's own defaults.
         # Seeding the copy from those - not from the base project - is what lets
-        # demo mode show a real parity mismatch: a base that overrides a setting
+        # the test show a real parity mismatch: a base that overrides a setting
         # genuinely does not pass that override on to a fresh copy.
         defaults = self.data.get("tenant_config") or []
         self._configs[project_id] = [dict(row) for row in defaults]
