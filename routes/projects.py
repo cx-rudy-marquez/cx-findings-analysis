@@ -152,10 +152,10 @@ def reset_portfolio_settings() -> RedirectResponse:
 def _cx_project_url(project_id: str) -> str | None:
     """Deep link to this project in Checkmarx One, or None if it cannot be built.
 
-    Demo mode has no tenant to link into, and an unset base URL would produce a
-    link to nowhere - which is worse than no link, because it looks clickable.
+    An unset base URL would produce a link to nowhere - which is worse than no
+    link, because it looks clickable.
     """
-    if settings.use_fixtures or not settings.base_url:
+    if not settings.base_url:
         return None
     return f"{settings.base_url}/projects/{project_id}/overview"
 

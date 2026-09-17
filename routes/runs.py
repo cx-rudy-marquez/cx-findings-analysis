@@ -118,7 +118,6 @@ def start_run(
         baseline_scan_id=None,
         baseline_branch=None,
         minutes_per_finding=minutes_per_finding,
-        is_synthetic=settings.use_fixtures,
         status=RUNNING,
     )
     background.add_task(run_flow, run_id, project_id, store, client, settings)
@@ -231,7 +230,6 @@ def start_bulk_run(
             baseline_scan_id=None,
             baseline_branch=None,
             minutes_per_finding=settings.minutes_per_finding,
-            is_synthetic=settings.use_fixtures,
             status=RUNNING,
             batch_id=batch_id,
         )

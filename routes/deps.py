@@ -1,9 +1,4 @@
-"""Shared wiring: one client, one store, one Jinja environment.
-
-The client choice is the demo/live switch. Nothing downstream knows which one
-it has, which is what keeps the fixture path honest - the templates and the
-comparison maths run identically either way.
-"""
+"""Shared wiring: one client, one store, one Jinja environment."""
 
 from __future__ import annotations
 
@@ -14,7 +9,6 @@ from fastapi.templating import Jinja2Templates
 
 from config import ROOT, settings
 from cx.client import CxApiClient
-from cx.fixtures import FixtureClient
 from store import Store
 
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
@@ -57,8 +51,6 @@ templates.env.globals["phase_timeline"] = phase_timeline
 
 @lru_cache(maxsize=1)
 def get_client():
-    if settings.use_fixtures:
-        return FixtureClient(settings)
     return CxApiClient(settings=settings)
 
 
@@ -97,7 +89,6 @@ def base_context(request, tab: str = "projects") -> dict:
     """
     return {
         "request": request,
-        "demo_mode": settings.use_fixtures,
         "tenant": settings.tenant or "demo",
         "tab": tab,
         # Whether the re-onboarding flow is offered. Templates read this to grey

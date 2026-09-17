@@ -1,4 +1,4 @@
-"""End-to-end through the real ASGI app, in demo mode.
+"""End-to-end through the real ASGI app, against a fake client.
 
 These are the checks that catch a broken template or a wrong context key -
 things the unit tests cannot see because they never render anything.
@@ -11,9 +11,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from config import ROOT
+from tests.support.fake_client import FakeClient
 
 WEBGOATNET = "fixture-webgoatnet"
-#: A fixture project with no SAST scan at all - the one whose portfolio entry
+#: A project with no SAST scan at all - the one whose portfolio entry
 #: declares no severities. Present deliberately: the "no baseline" path must
 #: degrade into an explanation, not a stack trace.
 NO_SAST = "fixture-docs-site"
@@ -21,9 +22,12 @@ NO_SAST_NAME = "acme/docs-site"
 
 
 def _client(tmp_path, monkeypatch, reonboard: bool):
-    monkeypatch.setenv("USE_FIXTURES", "true")
+    monkeypatch.setenv("CX_BASE_URL", "https://example.checkmarx.net")
+    monkeypatch.setenv("CX_AUTH_URL", "https://example.iam.checkmarx.net")
+    monkeypatch.setenv("CX_TENANT", "example-tenant")
+    monkeypatch.setenv("CX_CLIENT_SECRET", "test-token")
     monkeypatch.setenv("CX_DB_PATH", str(tmp_path / "routes.db"))
-    # The fixture scan poller returns a terminal status after a couple of polls;
+    # The fake scan poller returns a terminal status after a couple of polls;
     # the default eight-second wait between them is pure dead time here and adds
     # minutes to the suite once several tests each drive a full run.
     monkeypatch.setenv("POLL_INTERVAL_SECONDS", "0")
@@ -31,12 +35,28 @@ def _client(tmp_path, monkeypatch, reonboard: bool):
 
     import config
     import routes.deps as deps
+    import routes.projects as projects_module
+    import routes.runs as runs_module
 
     fresh = config.Settings.from_env()
     monkeypatch.setattr(config, "settings", fresh)
     monkeypatch.setattr(deps, "settings", fresh)
-    deps.get_client.cache_clear()
+    monkeypatch.setattr(projects_module, "settings", fresh)
+    monkeypatch.setattr(runs_module, "settings", fresh)
+    # A test that requests both `client` and `client_no_beta` runs `_client()`
+    # twice; by the second call `get_client` is already the FakeClient lambda
+    # from the first, which has no `cache_clear`.
+    if hasattr(deps.get_client, "cache_clear"):
+        deps.get_client.cache_clear()
     deps.get_store.cache_clear()
+
+    # `from routes.deps import get_client` binds a separate name in each of
+    # these modules, so each has to be patched individually to all resolve to
+    # the same FakeClient instance.
+    fake = FakeClient(fresh)
+    monkeypatch.setattr(deps, "get_client", lambda: fake)
+    monkeypatch.setattr(projects_module, "get_client", lambda: fake)
+    monkeypatch.setattr(runs_module, "get_client", lambda: fake)
 
     import app as app_module
 
@@ -44,7 +64,6 @@ def _client(tmp_path, monkeypatch, reonboard: bool):
     with TestClient(app_module.app) as test_client:
         yield test_client
 
-    deps.get_client.cache_clear()
     deps.get_store.cache_clear()
 
 
@@ -83,9 +102,9 @@ def wait_for_batch(client, batch_url: str, attempts: int = 60) -> dict:
     raise AssertionError(f"batch did not finish: {payload}")
 
 
-def test_healthz_reports_demo_mode(client):
+def test_healthz_reports_no_missing_credentials(client):
     body = client.get("/healthz").json()
-    assert body == {"ok": True, "mode": "demo", "missing_credentials": []}
+    assert body == {"ok": True, "missing_credentials": []}
 
 
 def test_index_offers_to_build_before_any_snapshot_exists(client):
@@ -99,7 +118,6 @@ def test_index_lists_the_portfolio_after_a_refresh(client):
     assert client.post("/portfolio/refresh", follow_redirects=False).status_code == 303
     page = client.get("/").text
     assert "rmarquez/WebGoatNet" in page
-    assert "Sample data" in page
     assert "Counts as of" in page
     # All three risk levels are represented by the fixture portfolio.
     for level in ("risk-low", "risk-medium", "risk-high"):
@@ -348,7 +366,6 @@ def test_full_run_renders_the_comparison(client):
 
     page = client.get(run_url).text
     assert "43.0" in page                      # 34 of 79 eligible
-    assert "Sample data — not measured" in page
     assert "not eligible for Findings Analysis" in page
     assert "6.8" in page                       # 34 findings x 12 min = 6.8 hours
     assert "15.5" in page                      # NEW share of the original baseline
@@ -613,10 +630,10 @@ def test_a_real_pipeline_failure_leaves_its_partial_fa_project_in_place(client, 
     flow like the test above does. Verifies the batch isolates the failure
     AND that the partially-created _FA project is left in place, not rolled
     back or cleaned up - the GAP flagged in GOAL_FIX_BULK_ANALYSIS.md."""
-    from cx.fixtures import FixtureClient
     from routes.deps import get_client
+    from tests.support.fake_client import FakeClient
 
-    real_create_scan = FixtureClient.create_scan
+    real_create_scan = FakeClient.create_scan
     failing_fa_id = "fixture-acme/payments-api_FA"
 
     def flaky_create_scan(self, payload):
@@ -624,7 +641,7 @@ def test_a_real_pipeline_failure_leaves_its_partial_fa_project_in_place(client, 
             raise RuntimeError("synthetic scan-creation failure")
         return real_create_scan(self, payload)
 
-    monkeypatch.setattr(FixtureClient, "create_scan", flaky_create_scan)
+    monkeypatch.setattr(FakeClient, "create_scan", flaky_create_scan)
 
     response = client.post(
         "/runs/bulk",

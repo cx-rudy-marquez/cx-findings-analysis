@@ -1,7 +1,6 @@
 """Findings Analysis Impact Dashboard.
 
-Run:  uvicorn app:app --reload --port 8060
-Demo: USE_FIXTURES=true uvicorn app:app --port 8060
+Run: uvicorn app:app --reload --port 8060
 """
 
 from __future__ import annotations
@@ -31,11 +30,7 @@ async def lifespan(_: FastAPI):
     log.info("Settings: %s", settings.describe())
     missing = settings.missing_credentials()
     if missing:
-        log.warning(
-            "Missing credentials (%s). Live mode is unavailable; set USE_FIXTURES=true "
-            "for demo mode.",
-            ", ".join(missing),
-        )
+        log.warning("Missing credentials (%s).", ", ".join(missing))
     yield
 
 
@@ -58,6 +53,5 @@ async def _server_error(request: Request, exc: Exception) -> HTMLResponse:
 def healthz() -> dict:
     return {
         "ok": True,
-        "mode": "demo" if settings.use_fixtures else "live",
         "missing_credentials": settings.missing_credentials(),
     }
