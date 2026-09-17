@@ -13,6 +13,10 @@ data/
 # Planning documents. Internal, and superseded by README.md.
 GOAL*.md
 
+# Generated visual design-system specs, not a description of the app's
+# architecture. Internal and not meant to be version-controlled.
+*DESIGN.md
+
 # Not part of the application: a Checkmarx engine log and another tool's store.
 engineLog.txt
 ruvector.db
