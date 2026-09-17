@@ -742,7 +742,9 @@ tr:has(.bulk-select[disabled]) { color: var(--ink-faint); }
   color: var(--ink-soft);
 }
 .confirm-checkbox { display: flex; align-items: flex-start; gap: 0.5rem; margin: 1.25rem 0 0; font-size: 0.85rem; }
-.confirm-checkbox input { margin-top: 0.2rem; }
+/* This label also carries `.field`, whose `input { width: 5.5rem }` is meant
+   for text/number fields and otherwise stretches this checkbox into an oval. */
+.confirm-checkbox input { width: 32px; height: 32px; margin-top: 0.2rem; }
 
 /* Bulk run progress: a scrollable list rather than a page resized to fit an
    arbitrarily large batch. */
