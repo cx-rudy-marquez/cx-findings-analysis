@@ -613,6 +613,17 @@ form[aria-busy="true"] .busy-note,
 
 /* --- portfolio ------------------------------------------------------------ */
 
+/* Overrides the prose reading-width cap (`p { max-width: var(--measure) }`) for
+   paragraphs that stand in for a table caption/legend rather than body copy. */
+.note-wide { max-width: none; }
+
+/* Re-onboard plan table: only the leading order-number column is fixed-width,
+   the rest (Call/Target/Effect) share the remaining space evenly — overrides
+   the narrow `.portfolio col` default sized for the portfolio table's numeric
+   badge columns. */
+.plan-steps col { width: auto; }
+.plan-steps col.order-column { width: 48px; }
+
 .snapshot-bar {
   display: flex;
   align-items: center;
